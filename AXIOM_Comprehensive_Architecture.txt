@@ -1,0 +1,1161 @@
+================================================================================
+                    AXIOM: COMPREHENSIVE ARCHITECTURE PLAN
+               Complete Technical Specification for Implementation
+                              Version 1.0 | 2026-01-19
+================================================================================
+
+
+TABLE OF CONTENTS
+=================
+
+1. Executive Summary
+2. Core Philosophy & Principles
+3. System Architecture Overview
+4. Component Specifications
+   4.1 Frontend Layer
+   4.2 Semantic Control Plane
+   4.3 AI Layer
+   4.4 Verification Layer
+   4.5 Memory Layer
+   4.6 Infrastructure Layer
+5. Data Models & Schemas
+6. API Specifications
+7. Technology Stack
+8. Implementation Roadmap
+9. Security Architecture
+10. Economic Model
+
+
+================================================================================
+1. EXECUTIVE SUMMARY
+================================================================================
+
+AXIOM (Autonomous eXecution with Intent-Oriented Modeling) is a semantic
+development environment where humans express verified intent and AI generates,
+proves, and maintains implementations.
+
+KEY DIFFERENTIATORS:
+• Intent-first, not code-first
+• Verification-gated, not human-verified
+• Confidence-scored, not binary pass/fail
+• Economically controlled, not unbounded
+• Explainable, not opaque
+
+TARGET OUTCOME:
+Users design systems at semantic level; code is derived artifact.
+Trust is structural; errors are caught before users see them.
+
+
+================================================================================
+2. CORE PHILOSOPHY & PRINCIPLES
+================================================================================
+
+2.1 SEVEN FOUNDATIONAL PRINCIPLES
+---------------------------------
+
+P1: INTENT IS SOURCE OF TRUTH
+    Code is generated from intent. Intent is versioned, not code.
+    Changing intent regenerates code automatically.
+
+P2: VERIFICATION PRECEDES VISIBILITY
+    No AI output reaches user without passing verification gate.
+    User sees verified results, not raw generation.
+
+P3: UNCERTAINTY IS VISIBLE
+    Confidence scores are first-class. System never hides limitations.
+    Users calibrate trust based on real information.
+
+P4: CONTROL IS CONTINUOUS
+    Autonomy adjustable on spectrum (1-10 trust dial).
+    Users increase/decrease AI agency as trust builds.
+
+P5: CONSEQUENCES VISIBLE BEFORE ACTIONS
+    Every state change shows impact preview.
+    Users know what WILL happen before committing.
+
+P6: EVERYTHING IS REVERSIBLE
+    Default: all actions can be undone.
+    Irreversibility requires explicit acknowledgment.
+
+P7: UNDERSTANDING IS PRESERVED
+    System cultivates competence, not dependency.
+    Checkpoints verify user comprehension.
+
+
+2.2 PARADIGMS WE REJECT
+-----------------------
+
+• Code as primary representation
+• Chat as universal interface
+• Files as unit of work
+• User as final verifier
+• Hidden complexity
+• Configuration as personalization
+
+
+================================================================================
+3. SYSTEM ARCHITECTURE OVERVIEW
+================================================================================
+
+3.1 HIGH-LEVEL ARCHITECTURE
+----------------------------
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                              AXIOM PLATFORM                                 │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │                         FRONTEND LAYER                                 │ │
+│  │  Intent Canvas │ Review Panel │ Monitor │ Adaptive Scaffolding        │ │
+│  └───────────────────────────────────┬───────────────────────────────────┘ │
+│                                      │                                      │
+│  ┌───────────────────────────────────▼───────────────────────────────────┐ │
+│  │                    AI SECURITY GATEWAY                                 │ │
+│  │    Input Sanitizer │ Output Validator │ Audit Logger                   │ │
+│  └───────────────────────────────────┬───────────────────────────────────┘ │
+│                                      │                                      │
+│  ┌───────────────────────────────────▼───────────────────────────────────┐ │
+│  │                    SEMANTIC CONTROL PLANE                              │ │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐  │ │
+│  │  │Intent Service│ │Learner Model│ │Economic Ctrl │ │Speculation   │  │ │
+│  │  │              │ │Service      │ │Plane         │ │Engine        │  │ │
+│  │  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘  │ │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐  │ │
+│  │  │Orchestration │ │Reasoning    │ │Deployment    │ │Collaboration │  │ │
+│  │  │Service       │ │Trace Service│ │Service       │ │Service       │  │ │
+│  │  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘  │ │
+│  └───────────────────────────────────┬───────────────────────────────────┘ │
+│                                      │                                      │
+│  ┌──────────────┬───────────────┬────▼────────┬──────────────────────────┐ │
+│  │ AI LAYER    │ VERIFICATION  │ MEMORY      │ PROVENANCE               │ │
+│  │             │ ORCHESTRA     │ LAYER       │ CHAIN                    │ │
+│  │             │               │             │                          │ │
+│  │ Model Router│ Syntax Check  │ Working Mem │ Model Attestation        │ │
+│  │ SDO Engine  │ Type Checker  │ Project Mem │ Lineage Tracking         │ │
+│  │ Agent Pool  │ Test Runner   │ Org Memory  │ Signatures               │ │
+│  │ Cost Oracle │ SMT Solver    │ Vector Store│                          │ │
+│  │             │ Fuzzer        │ Graph DB    │                          │ │
+│  └──────────────┴───────────────┴─────────────┴──────────────────────────┘ │
+│                                      │                                      │
+│  ┌───────────────────────────────────▼───────────────────────────────────┐ │
+│  │                    INFRASTRUCTURE LAYER                                │ │
+│  │  Compute │ Storage │ Message Queue │ Observability │ Security Contexts│ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+3.2 REQUEST FLOW
+----------------
+
+1. User types intent in Intent Canvas
+2. System interprets in real-time → shows understanding
+3. User confirms/refines until satisfied
+4. Request passes through AI Security Gateway
+5. Economic Control Plane estimates cost, user approves if threshold exceeded
+6. Speculation Engine checks cache for similar intents
+7. Model Router selects appropriate model(s)
+8. SDO Engine generates candidates in parallel
+9. Verification Orchestra validates candidates
+10. Reasoning Trace Service captures WHY decisions were made
+11. Best verified candidate passes through Security Gateway (output validation)
+12. Result presented to user with confidence score
+13. User can: Accept, Drill Down, Refine Intent, Override (rare)
+
+
+================================================================================
+4. COMPONENT SPECIFICATIONS
+================================================================================
+
+4.1 FRONTEND LAYER
+------------------
+
+4.1.1 INTENT CANVAS
+
+Purpose: Primary interface for expressing user intent
+
+Features:
+• Natural language input with real-time interpretation
+• Structured constraint tagging
+• Intent templates for common patterns
+• Side-by-side: user input ↔ system interpretation
+• Refinement suggestions
+
+State:
+  IntentCanvasState {
+    raw_input: String,
+    parsed_intent: IntentSpec?,
+    interpretation_confidence: Float,
+    suggested_refinements: [Refinement],
+    active_constraints: [Constraint],
+    is_confirmed: Bool,
+  }
+
+
+4.1.2 REVIEW PANEL
+
+Purpose: Present verified outputs for user review
+
+Features:
+• Summary view (default)
+• Detail view (one click)
+• Code view (on demand)
+• Verification breakdown
+• Counterfactual explorer ("What if I wanted X instead?")
+• Accept/Refine actions
+
+State:
+  ReviewPanelState {
+    ivcu: IVCU,
+    view_level: Enum { Summary, Detail, Code },
+    verification_expanded: Bool,
+    counterfactual_active: Bool,
+  }
+
+
+4.1.3 ADAPTIVE SCAFFOLDING
+
+Purpose: Adjust UI complexity based on user skill
+
+Features:
+• Skill-based UI adaptation
+• Progressive disclosure of advanced features
+• Contextual help and examples
+• Understanding checkpoints
+
+Integration:
+• Reads from Learner Model Service
+• Adjusts component density and help level
+• Tracks user interactions for skill updates
+
+
+4.1.4 MONITORING DASHBOARD
+
+Purpose: System status and project health
+
+Features:
+• Active generations (with progress)
+• Recent IVCUs with status
+• Cost tracking (usage vs budget)
+• Team activity (for collaborative projects)
+• Alerts and notifications
+
+
+4.2 SEMANTIC CONTROL PLANE
+--------------------------
+
+4.2.1 INTENT SERVICE
+
+Responsibilities:
+• Parse natural language intent
+• Extract formal contracts
+• Manage IVCU lifecycle
+• Version control for intents
+
+API:
+  POST /intent/parse
+    Body: { raw_intent: String, project_context: UUID }
+    Response: { parsed: IntentSpec, confidence: Float }
+    
+  POST /intent/create
+    Body: { intent: IntentSpec, contracts: [Contract] }
+    Response: { ivcu_id: UUID }
+    
+  GET /intent/{ivcu_id}
+    Response: { ivcu: IVCU }
+    
+  PUT /intent/{ivcu_id}/refine
+    Body: { updates: IntentUpdate }
+    Response: { ivcu: IVCU, regeneration_required: Bool }
+
+
+4.2.2 LEARNER MODEL SERVICE
+
+Responsibilities:
+• Track user competency per skill domain
+• Determine appropriate scaffolding level
+• Record learning events
+• Provide skill analytics
+
+Data Model:
+  LearnerModel {
+    user_id: UUID,
+    skills: Map<SkillDomain, SkillLevel>,
+    learning_style: LearningStylePrefs,
+    history: [LearningEvent],
+    last_updated: Timestamp,
+  }
+
+  SkillDomain = Enum {
+    IntentExpression,
+    ContractReading,
+    VerificationInterpretation,
+    FailureDebugging,
+    ArchitecturalReasoning,
+  }
+
+API:
+  GET /learner/{user_id}/model
+    Response: { model: LearnerModel }
+    
+  POST /learner/{user_id}/event
+    Body: { event: LearningEvent }
+    Response: { updated_skills: Map }
+
+
+4.2.3 ECONOMIC CONTROL PLANE
+
+Responsibilities:
+• Track costs per user/project/org
+• Enforce budget limits
+• Route requests for cost optimization
+• Provide cost estimates before execution
+
+Components:
+• Budget Manager: Tracks spend against limits
+• Cost Oracle: Estimates operation costs
+• Model Router: Selects cost-optimal models
+• Quality Negotiator: Presents cost-quality options
+
+API:
+  GET /economics/{project_id}/budget
+    Response: { limit: Currency, used: Currency, remaining: Currency }
+    
+  POST /economics/estimate
+    Body: { operation: OperationSpec }
+    Response: { options: [CostOption] }
+    
+  POST /economics/approve
+    Body: { operation_id: UUID, option: CostOption }
+    Response: { approved: Bool, budget_after: Currency }
+
+
+4.2.4 SPECULATION ENGINE
+
+Responsibilities:
+• Predict likely user intents
+• Pre-generate for predicted intents
+• Manage semantic cache
+• Background speculation during idle
+
+Components:
+• Intent Predictor: ML model predicting next intent
+• Semantic Cache: Store generations keyed by intent embedding
+• Background Worker: Speculative generation pool
+
+API:
+  POST /speculation/predict
+    Body: { partial_intent: String, context: ProjectContext }
+    Response: { predictions: [PredictedIntent] }
+    
+  GET /speculation/cache/lookup
+    Query: { intent_embedding: Vector }
+    Response: { hit: Bool, generation?: Generation }
+
+
+4.2.5 ORCHESTRATION SERVICE
+
+Responsibilities:
+• Coordinate multi-step workflows
+• Manage agent lifecycle
+• Handle failures and retries
+• Enforce resource limits
+
+Workflow Engine:
+• Temporal-based durable workflows
+• Step-level retry with backoff
+• Timeout enforcement
+• Progress tracking
+
+API:
+  POST /orchestration/workflow
+    Body: { workflow_type: WorkflowType, input: WorkflowInput }
+    Response: { workflow_id: UUID }
+    
+  GET /orchestration/workflow/{id}/status
+    Response: { status: WorkflowStatus, progress: Float }
+
+
+4.2.6 REASONING TRACE SERVICE
+
+Responsibilities:
+• Capture AI decision reasoning
+• Enable counterfactual queries
+• Attribute failures to causes
+• Support debugging
+
+Data Model:
+  ReasoningTrace {
+    generation_id: UUID,
+    intent_interpretation: String,
+    constraints_identified: [Constraint],
+    context_used: [MemoryNode],
+    decisions: [Decision],
+    alternatives_considered: [Alternative],
+    confidence_breakdown: ConfidenceFactors,
+  }
+
+API:
+  GET /reasoning/{generation_id}/trace
+    Response: { trace: ReasoningTrace }
+    
+  POST /reasoning/{generation_id}/counterfactual
+    Body: { question: String }
+    Response: { answer: CounterfactualAnswer }
+
+
+4.3 AI LAYER
+------------
+
+4.3.1 MODEL ROUTER
+
+Responsibilities:
+• Select appropriate model for task
+• Balance cost vs quality
+• Respect org model policies
+• Track model performance
+
+Routing Logic:
+  Simple tasks (boilerplate) → Small/fast models (7-13B)
+  Medium tasks (features) → Balanced models (70B)
+  Complex tasks (architecture) → Frontier models (GPT-4/Claude class)
+
+Configuration:
+  ModelRoutingPolicy {
+    org_id: UUID,
+    allowed_models: [ModelID],
+    denied_models: [ModelID],
+    cost_preference: Enum { Cheapest, Balanced, BestQuality },
+    default_model: ModelID,
+  }
+
+
+4.3.2 SDO ENGINE (Speculative Decoding Orchestrator)
+
+Responsibilities:
+• Generate multiple candidates in parallel
+• Use draft models for initial filtering
+• Prune failed branches early
+• Present best verified candidate
+
+Algorithm:
+  1. Generate K initial candidates using draft model
+  2. Quick filter (syntax, obvious errors)
+  3. Generate refined versions using primary model
+  4. Parallel verification on all candidates
+  5. Rank by verification confidence
+  6. Return best candidate
+
+Circuit Breakers:
+• Max candidates: 5
+• Max retries per candidate: 3
+• Total token budget: configurable
+• Timeout: 60s default, configurable
+
+
+4.3.3 AGENT POOL
+
+Agent Types:
+  GENERATOR AGENTS:
+    • CodeGenerator: Produces code from intent
+    • TestGenerator: Creates tests from contracts
+    • DocGenerator: Writes documentation
+    • RefactorAgent: Transforms existing code
+    
+  UTILITY AGENTS:
+    • MemoryAgent: Retrieves relevant context
+    • DependencyAgent: Resolves dependencies
+    • FormatAgent: Normalizes code style
+
+Agent Lifecycle:
+  1. Spawn from pool on demand
+  2. Execute task with timeout
+  3. Return to pool or terminate
+
+
+4.4 VERIFICATION LAYER
+----------------------
+
+4.4.1 VERIFICATION ORCHESTRA
+
+Architecture:
+  Each verifier runs independently; results aggregate to confidence score
+
+Verifiers (Tier 1 - Fast, <2s):
+  • SyntaxChecker: Parse validation
+  • TypeChecker: Static type analysis
+  • Linter: Style and pattern checks
+  • ImportResolver: Dependency validation
+
+Verifiers (Tier 2 - Medium, 2-15s):
+  • TestRunner: Execute generated tests
+  • PropertyChecker: Property-based testing (limited)
+  • RegressionChecker: Compare against known good
+
+Verifiers (Tier 3 - Deep, 15s-5min):
+  • SMTSolver: Bounded model checking
+  • SecurityScanner: Vulnerability analysis
+  • FuzzTester: Randomized input testing
+
+Confidence Aggregation:
+  confidence = Σ(verifier_weight × verifier_result × verifier_coverage)
+
+API:
+  POST /verification/verify
+    Body: { 
+      code: String, 
+      contracts: [Contract],
+      budget: VerificationBudget 
+    }
+    Response: { 
+      confidence: Float,
+      breakdown: [VerifierResult],
+      known_limitations: [Limitation]
+    }
+
+
+4.4.2 VERIFICATION BUDGET
+
+Model:
+  VerificationBudget {
+    max_time: Duration,
+    max_cost: Currency,
+    min_confidence: Float,  // Stop if achieved
+    required_verifiers: [VerifierID],  // Must run
+    optional_verifiers: [VerifierID],  // Run if budget allows
+  }
+
+
+4.5 MEMORY LAYER
+----------------
+
+4.5.1 THREE-TIER MEMORY
+
+TIER 1: WORKING MEMORY (Session-scoped)
+• Current intent and context
+• Active conversation
+• Recent generations
+• Capacity: Fits context window (~128K tokens)
+• Storage: In-memory
+
+TIER 2: PROJECT MEMORY (Persistent, per-project)
+• All IVCUs
+• Architectural decisions
+• Team conventions
+• Bug history
+• Storage: PostgreSQL + Vector DB
+
+TIER 3: ORGANIZATIONAL MEMORY (Persistent, cross-project)
+• Shared patterns
+• Security policies
+• Compliance requirements
+• Storage: Dedicated cluster
+
+
+4.5.2 MEMORY SERVICE
+
+Responsibilities:
+• Store and retrieve context
+• Semantic search over memory
+• Graph traversal for relationships
+• Context window optimization
+
+API:
+  POST /memory/store
+    Body: { node: MemoryNode }
+    Response: { node_id: UUID }
+    
+  POST /memory/search
+    Body: { query: String, max_results: Int, filters: MemoryFilter }
+    Response: { nodes: [MemoryNode], relevance_scores: [Float] }
+    
+  GET /memory/related/{node_id}
+    Query: { depth: Int }
+    Response: { nodes: [MemoryNode], relations: [Relation] }
+
+
+4.6 INFRASTRUCTURE LAYER
+------------------------
+
+4.6.1 COMPUTE
+
+Development:
+• Single node with GPU for local LLM
+• Docker Compose for services
+
+Production:
+• Kubernetes cluster
+• GPU nodes for inference
+• CPU nodes for services
+• Autoscaling based on queue depth
+
+
+4.6.2 STORAGE
+
+PostgreSQL:
+• IVCUs, users, projects, budgets
+• Transactional data
+
+Qdrant (Vector DB):
+• Memory embeddings
+• Semantic search
+
+Neo4j (Graph DB):
+• Memory relationships
+• Architecture dependencies
+
+Redis:
+• Session state
+• Caching
+• Rate limiting
+
+
+4.6.3 MESSAGE QUEUE
+
+NATS:
+• Internal service communication
+• Event streaming
+• Pub/sub for notifications
+
+
+4.6.4 OBSERVABILITY
+
+Metrics (Prometheus):
+• Request latency
+• Generation success rate
+• Verification pass rate
+• Cost per operation
+
+Logs (Loki):
+• Structured JSON logs
+• Trace correlation
+
+Traces (Tempo):
+• Distributed tracing
+• Cross-service correlation
+
+
+4.6.5 SECURITY CONTEXTS
+
+Four isolation levels:
+
+PUBLIC:
+• Any approved model
+• Standard caching
+• General development
+
+CONFIDENTIAL:
+• Restricted model list
+• No output caching
+• Enhanced logging
+
+REGULATED:
+• Certified models only
+• Complete audit trail
+• Approval workflows
+
+SOVEREIGN:
+• Self-hosted only
+• No external network
+• Customer-managed keys
+
+
+================================================================================
+5. DATA MODELS & SCHEMAS
+================================================================================
+
+5.1 CORE ENTITIES
+-----------------
+
+PROJECT:
+```
+Project {
+  id: UUID (PK)
+  name: String
+  owner_id: UUID (FK → User)
+  team_ids: UUID[]
+  settings: JSONB
+  security_context: SecurityContext
+  created_at: Timestamp
+  updated_at: Timestamp
+}
+```
+
+USER:
+```
+User {
+  id: UUID (PK)
+  email: String (UNIQUE)
+  name: String
+  org_id: UUID (FK → Organization)
+  role: Role
+  trust_dial_default: Int (1-10)
+  created_at: Timestamp
+}
+```
+
+IVCU (Intent-Verified Code Unit):
+```
+IVCU {
+  id: UUID (PK)
+  project_id: UUID (FK → Project)
+  version: Int
+  
+  -- Intent
+  raw_intent: Text
+  parsed_intent: JSONB
+  
+  -- Contract
+  contracts: JSONB
+  
+  -- Verification
+  verification_result: JSONB
+  confidence_score: Float
+  
+  -- Implementation
+  code: Text
+  language: String
+  
+  -- Provenance
+  model_id: String
+  model_version: String
+  generation_params: JSONB
+  input_hash: String
+  output_hash: String
+  
+  -- Metadata
+  status: IVCUStatus
+  created_at: Timestamp
+  created_by: UUID (FK → User)
+  parent_ids: UUID[]
+}
+```
+
+MEMORY_NODE:
+```
+MemoryNode {
+  id: UUID (PK)
+  project_id: UUID (FK → Project)
+  type: MemoryNodeType
+  content: Text
+  embedding: Vector(1536)
+  source_ivcu_id: UUID (FK → IVCU)
+  created_at: Timestamp
+  superseded_by: UUID?
+}
+```
+
+LEARNER_MODEL:
+```
+LearnerModel {
+  user_id: UUID (PK, FK → User)
+  skills: JSONB
+  learning_style: JSONB
+  updated_at: Timestamp
+}
+```
+
+BUDGET:
+```
+Budget {
+  id: UUID (PK)
+  owner_type: Enum(User, Project, Organization)
+  owner_id: UUID
+  limit_amount: Decimal
+  used_amount: Decimal
+  period: Enum(Daily, Monthly, Total)
+  reset_at: Timestamp?
+}
+```
+
+GENERATION_LOG:
+```
+GenerationLog {
+  id: UUID (PK)
+  ivcu_id: UUID (FK → IVCU)
+  model_id: String
+  tokens_in: Int
+  tokens_out: Int
+  latency_ms: Int
+  cost: Decimal
+  timestamp: Timestamp
+}
+```
+
+
+5.2 ENUMS
+---------
+
+```
+IVCUStatus = Enum {
+  Draft,
+  Generating,
+  Verifying,
+  Verified,
+  Deployed,
+  Deprecated,
+  Failed
+}
+
+SecurityContext = Enum {
+  Public,
+  Confidential,
+  Regulated,
+  Sovereign
+}
+
+SkillDomain = Enum {
+  IntentExpression,
+  ContractReading,
+  VerificationInterpretation,
+  FailureDebugging,
+  ArchitecturalReasoning
+}
+
+MemoryNodeType = Enum {
+  Decision,
+  Constraint,
+  Fact,
+  Dependency,
+  Convention,
+  BugFix
+}
+```
+
+
+================================================================================
+6. API SPECIFICATIONS
+================================================================================
+
+6.1 REST API OVERVIEW
+---------------------
+
+Base URL: /api/v1
+
+Authentication: Bearer token (JWT)
+
+Rate Limiting: Per-user, per-endpoint
+
+Common Headers:
+  Authorization: Bearer <token>
+  Content-Type: application/json
+  X-Request-ID: <uuid>
+
+
+6.2 ENDPOINT SUMMARY
+--------------------
+
+INTENT ENDPOINTS:
+  POST   /intent/parse           Parse raw intent
+  POST   /intent/create          Create IVCU from intent
+  GET    /intent/{id}            Get IVCU by ID
+  PUT    /intent/{id}            Update IVCU intent
+  DELETE /intent/{id}            Delete IVCU
+  GET    /intent/project/{id}    List IVCUs for project
+
+GENERATION ENDPOINTS:
+  POST   /generation/start       Start generation workflow
+  GET    /generation/{id}/status Get generation status
+  POST   /generation/{id}/cancel Cancel generation
+
+VERIFICATION ENDPOINTS:
+  POST   /verification/verify    Verify code against contracts
+  GET    /verification/{id}      Get verification result
+
+MEMORY ENDPOINTS:
+  POST   /memory/store           Store memory node
+  POST   /memory/search          Semantic search
+  GET    /memory/{id}            Get memory node
+  GET    /memory/related/{id}    Get related nodes
+
+ECONOMICS ENDPOINTS:
+  GET    /economics/budget       Get current budget
+  POST   /economics/estimate     Estimate operation cost
+  GET    /economics/usage        Get usage history
+
+USER ENDPOINTS:
+  GET    /user/me                Get current user
+  GET    /user/me/learner        Get learner model
+  PUT    /user/me/settings       Update settings
+
+PROJECT ENDPOINTS:
+  POST   /project                Create project
+  GET    /project/{id}           Get project
+  PUT    /project/{id}           Update project
+  GET    /project/{id}/team      Get team members
+
+
+6.3 WEBSOCKET API
+-----------------
+
+Endpoint: /ws/v1
+
+Events:
+  generation.started     { generation_id, ivcu_id }
+  generation.progress    { generation_id, progress, stage }
+  generation.completed   { generation_id, ivcu }
+  generation.failed      { generation_id, error }
+  verification.progress  { verification_id, verifier, result }
+  verification.completed { verification_id, confidence }
+
+
+================================================================================
+7. TECHNOLOGY STACK
+================================================================================
+
+7.1 FRONTEND
+------------
+
+Framework: Next.js 14 (React 18)
+Language: TypeScript 5
+State: Zustand
+Styling: Tailwind CSS + Radix UI
+Editor: Monaco (for code view)
+Real-time: Socket.io client
+
+Key Libraries:
+• react-query: Server state management
+• framer-motion: Animations
+• d3: Visualization (for graphs)
+• zod: Schema validation
+
+
+7.2 BACKEND
+-----------
+
+Language: Go 1.22
+Framework: Gin (HTTP) + gRPC (internal)
+Workflow: Temporal
+ORM: GORM
+
+Key Libraries:
+• go-redis: Redis client
+• pgx: PostgreSQL driver
+• nats.go: NATS client
+• opentelemetry-go: Observability
+
+
+7.3 AI SERVICES
+---------------
+
+Language: Python 3.12
+Framework: FastAPI
+ML: PyTorch, Transformers
+
+Key Libraries:
+• langchain: LLM orchestration
+• qdrant-client: Vector operations
+• z3-solver: SMT solving
+• openai/anthropic: Model APIs
+
+
+7.4 INFRASTRUCTURE
+------------------
+
+Container: Docker
+Orchestration: Kubernetes (k8s)
+CI/CD: GitHub Actions
+IaC: Terraform
+
+Databases:
+• PostgreSQL 16
+• Qdrant (vector)
+• Neo4j 5 (graph)
+• Redis 7
+
+Observability:
+• Prometheus + Grafana
+• Loki (logs)
+• Tempo (traces)
+
+Security:
+• HashiCorp Vault (secrets)
+• Cloudflare (WAF/DDoS)
+
+
+================================================================================
+8. IMPLEMENTATION ROADMAP
+================================================================================
+
+8.1 PHASE 1: FOUNDATION (Weeks 1-8)
+-----------------------------------
+
+Goal: Minimal viable loop (Intent → Generate → Verify → Review)
+
+Deliverables:
+• [ ] Project scaffolding (monorepo structure)
+• [ ] Database schema and migrations
+• [ ] Basic Auth (JWT)
+• [ ] Intent Service (parse, create, get)
+• [ ] Generation Service (single model, no SDO)
+• [ ] Verification Service (Tier 1 only: syntax, types, lint)
+• [ ] Simple Frontend (Intent Canvas, basic Review)
+• [ ] Local development environment
+
+
+8.2 PHASE 2: CORE LOOP (Weeks 9-16)
+-----------------------------------
+
+Goal: Production-ready single-user experience
+
+Deliverables:
+• [ ] SDO Engine (parallel candidates, pruning)
+• [ ] Verification Orchestra (Tier 1 + Tier 2)
+• [ ] Memory Layer (project memory)
+• [ ] Economic Control Plane (budgets, cost tracking)
+• [ ] Confidence scoring and display
+• [ ] Undo/rollback functionality
+• [ ] Consequence preview
+• [ ] Basic API security
+
+
+8.3 PHASE 3: INTELLIGENCE (Weeks 17-24)
+---------------------------------------
+
+Goal: Smart, adaptive experience
+
+Deliverables:
+• [ ] Learner Model Service
+• [ ] Adaptive UI scaffolding
+• [ ] Speculation Engine
+• [ ] Reasoning Trace Service
+• [ ] Counterfactual Explorer
+• [ ] Deep verification (Tier 3)
+• [ ] Model routing (multiple models)
+
+
+8.4 PHASE 4: SCALE (Weeks 25-32)
+--------------------------------
+
+Goal: Multi-user, enterprise-ready
+
+Deliverables:
+• [ ] Team collaboration features
+• [ ] Organization memory
+• [ ] Security contexts
+• [ ] AI Security Gateway
+• [ ] Provenance chain
+• [ ] Kubernetes deployment
+• [ ] Observability stack
+• [ ] Performance optimization
+
+
+================================================================================
+9. SECURITY ARCHITECTURE
+================================================================================
+
+9.1 AUTHENTICATION & AUTHORIZATION
+----------------------------------
+
+Auth Provider: Auth0 or Clerk
+Protocol: OAuth 2.0 / OIDC
+
+Roles:
+• Viewer: Read-only access
+• Developer: Create, edit IVCUs
+• Admin: Manage project settings, team
+• Owner: Full control including deletion
+
+Permissions:
+• Project-scoped RBAC
+• Row-level security in PostgreSQL
+
+
+9.2 AI SECURITY GATEWAY
+-----------------------
+
+Input Sanitization:
+• Prompt injection pattern detection
+• User input isolated from system prompts
+• Suspicious patterns flagged
+
+Output Validation:
+• Credential pattern detection
+• PII scanning
+• Schema validation
+
+Audit:
+• All AI interactions logged
+• Immutable audit trail
+• Anomaly detection
+
+
+9.3 DATA PROTECTION
+-------------------
+
+Encryption:
+• At rest: AES-256
+• In transit: TLS 1.3
+• Secrets: Vault-managed
+
+Data Isolation:
+• Project-level isolation
+• Tenant separation in multi-tenant
+• Row-level security
+
+
+================================================================================
+10. ECONOMIC MODEL
+================================================================================
+
+10.1 COST DRIVERS
+-----------------
+
+| Component          | Cost Metric              | Estimated Cost     |
+|--------------------|--------------------------|--------------------
+| LLM Inference      | Tokens (in + out)        | $0.01-0.10 per 1K  |
+| Verification       | Compute time             | $0.001 per second  |
+| Vector Storage     | GB stored + queries      | $0.10 per GB/month |
+| Graph Storage      | Nodes + queries          | $0.05 per 1K nodes |
+| Compute            | vCPU hours               | $0.05 per hour     |
+
+
+10.2 PRICING TIERS
+------------------
+
+FREE:
+• 100 IVCUs/month
+• Basic verification
+• Community support
+• Single project
+
+PRO ($29/user/month):
+• Unlimited IVCUs
+• Full verification
+• Priority support
+• 10 projects
+• Team features (3 users)
+
+TEAM ($79/user/month):
+• Everything in Pro
+• Org memory
+• Advanced security
+• Unlimited projects
+• SSO
+
+ENTERPRISE (Custom):
+• Everything in Team
+• Self-hosting option
+• Dedicated support
+• SLA
+• Custom integrations
+
+
+================================================================================
+                         END OF COMPREHENSIVE ARCHITECTURE
+================================================================================
+
+DOCUMENT MANIFEST:
+
+This document synthesizes and supersedes:
+• Prior research documents (Precision Authoring, Meta-Analysis, etc.)
+• Economic Viability Analysis
+• UI Interaction Paradigm Research
+• AXIOM Product Architecture Document
+• Risk Mitigations Addendum
+• Architectural Improvements Research
+
+All necessary context for Antigravity implementation is contained herein.
+
+
+================================================================================

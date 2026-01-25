@@ -1,0 +1,208 @@
+"""
+Database Service
+Handles PostgreSQL interactions using asyncpg.
+"""
+import os
+import json
+import asyncpg
+import asyncio
+from typing import Optional, Dict, Any, List
+from datetime import datetime
+
+class DatabaseConfig:
+    """Database configuration"""
+    DB_URL = os.getenv("DATABASE_URL", "postgresql://axiom:axiom@axiom-postgres:5432/axiom")
+
+class DatabaseService:
+    """
+    Manages database connections and persistence for SDOs.
+    """
+    def __init__(self):
+        self.pool: Optional[asyncpg.Pool] = None
+        self._url = DatabaseConfig.DB_URL
+
+    async def initialize(self) -> bool:
+        """Initialize database connection pool and schema."""
+        try:
+            # Create connection pool
+            self.pool = await asyncpg.create_pool(self._url)
+            
+            # Initialize Schema
+            async with self.pool.acquire() as conn:
+                await self._create_schema(conn)
+                
+            print(f"Connected to PostgreSQL at {self._url.split('@')[-1]}")
+            return True
+        except Exception as e:
+            print(f"Failed to initialize DatabaseService: {e}")
+            return False
+
+    async def _create_schema(self, conn: asyncpg.Connection):
+        """Create necessary tables if they don't exist."""
+        # SDO Table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS sdos (
+                id UUID PRIMARY KEY,
+                raw_intent TEXT NOT NULL,
+                parsed_intent JSONB,
+                language TEXT DEFAULT 'python',
+                status TEXT NOT NULL,
+                confidence FLOAT DEFAULT 0.0,
+                code TEXT,
+                selected_candidate_id TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                meta JSONB DEFAULT '{}'::jsonb
+            );
+        """)
+
+        # Candidates Table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS candidates (
+                id UUID PRIMARY KEY,
+                sdo_id UUID REFERENCES sdos(id) ON DELETE CASCADE,
+                code TEXT NOT NULL,
+                confidence FLOAT,
+                verification_passed BOOLEAN DEFAULT FALSE,
+                verification_score FLOAT DEFAULT 0.0,
+                verification_result JSONB,
+                pruned BOOLEAN DEFAULT FALSE,
+                model_id TEXT,
+                reasoning TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        
+        # Add column if not exists (migration)
+        try:
+            await conn.execute("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS verification_result JSONB;")
+        except Exception:
+            pass
+        
+        # Verification Results Table (Legacy/Alternate)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS verification_results (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
+                passed BOOLEAN NOT NULL,
+                score FLOAT,
+                details JSONB,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+    async def save_sdo(self, sdo_data: Dict[str, Any]):
+        """
+        Upsert SDO record.
+        """
+        if not self.pool:
+            return
+
+        async with self.pool.acquire() as conn:
+            # Upsert SDO
+            await conn.execute("""
+                INSERT INTO sdos (id, raw_intent, parsed_intent, language, status, confidence, code, selected_candidate_id, meta)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (id) DO UPDATE SET
+                    raw_intent = EXCLUDED.raw_intent,
+                    parsed_intent = EXCLUDED.parsed_intent,
+                    language = EXCLUDED.language,
+                    status = EXCLUDED.status,
+                    confidence = EXCLUDED.confidence,
+                    code = EXCLUDED.code,
+                    selected_candidate_id = EXCLUDED.selected_candidate_id,
+                    meta = EXCLUDED.meta,
+                    updated_at = CURRENT_TIMESTAMP;
+            """,
+            sdo_data['id'],
+            sdo_data.get('raw_intent'),
+            json.dumps(sdo_data.get('parsed_intent')) if sdo_data.get('parsed_intent') else None,
+            sdo_data.get('language'),
+            sdo_data.get('status'),
+            sdo_data.get('confidence'),
+            sdo_data.get('code'),
+            sdo_data.get('selected_candidate_id'),
+            json.dumps(sdo_data.get('meta', {}))
+            )
+            
+            # Save candidates if present
+            if 'candidates' in sdo_data and sdo_data['candidates']:
+                for cand in sdo_data['candidates']:
+                    # Helper to get dict result if it's already a dict or Pydantic model
+                    v_res = cand.get('verification_result')
+                    if hasattr(v_res, 'model_dump'):
+                        v_res = v_res.model_dump()
+                        
+                    await conn.execute("""
+                        INSERT INTO candidates (id, sdo_id, code, confidence, verification_passed, verification_score, verification_result, pruned, model_id, reasoning)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                        ON CONFLICT (id) DO UPDATE SET
+                            code = EXCLUDED.code,
+                            confidence = EXCLUDED.confidence,
+                            verification_passed = EXCLUDED.verification_passed,
+                            verification_score = EXCLUDED.verification_score,
+                            verification_result = EXCLUDED.verification_result,
+                            pruned = EXCLUDED.pruned,
+                            model_id = EXCLUDED.model_id,
+                            reasoning = EXCLUDED.reasoning;
+                    """,
+                    cand['id'],
+                    sdo_data['id'],
+                    cand['code'],
+                    cand['confidence'],
+                    cand['verification_passed'],
+                    cand['verification_score'],
+                    json.dumps(v_res) if v_res else None,
+                    cand['pruned'],
+                    cand['model_id'],
+                    cand['reasoning']
+                    )
+
+    async def get_sdo(self, sdo_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve SDO and its candidates.
+        """
+        if not self.pool:
+            return None
+
+        async with self.pool.acquire() as conn:
+            # Fetch SDO with epoch timestamps and text ID
+            row = await conn.fetchrow("""
+                SELECT 
+                    id::text, raw_intent, parsed_intent, language, status, confidence, code, 
+                    selected_candidate_id, meta,
+                    EXTRACT(EPOCH FROM created_at) as created_at,
+                    EXTRACT(EPOCH FROM updated_at) as updated_at
+                FROM sdos WHERE id = $1
+            """, sdo_id)
+            if not row:
+                return None
+            
+            sdo = dict(row)
+            if sdo['parsed_intent']:
+                sdo['parsed_intent'] = json.loads(sdo['parsed_intent'])
+            if sdo['meta']:
+                sdo['meta'] = json.loads(sdo['meta'])
+            
+            # Fetch Candidates with epoch timestamps and text ID
+            c_rows = await conn.fetch("""
+                SELECT 
+                    id::text, sdo_id::text, code, confidence, verification_passed, verification_score, 
+                    verification_result, pruned, model_id, reasoning,
+                    EXTRACT(EPOCH FROM created_at) as created_at
+                FROM candidates WHERE sdo_id = $1
+            """, sdo_id)
+            candidates = []
+            for c_row in c_rows:
+                cand = dict(c_row)
+                if cand['verification_result']:
+                    cand['verification_result'] = json.loads(cand['verification_result'])
+                candidates.append(cand)
+            
+            sdo['candidates'] = candidates
+            return sdo
+
+    async def close(self):
+        """Close connection pool."""
+        if self.pool:
+            await self.pool.close()
