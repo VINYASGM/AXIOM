@@ -1,0 +1,28 @@
+   Compiling verifier v0.1.0 (C:\Users\Vinyas G M\OneDrive\Desktop\Axiom\services\verifier)
+warning: unused import: `rustpython_parser::ast`
+ --> src\main.rs:5:5
+  |
+5 | use rustpython_parser::ast;
+  |     ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0609]: no field `location` on type `rustpython_parser_core::error::BaseError<ParseErrorType>`
+  --> src\main.rs:39:33
+   |
+39 |                         line: e.location.row() as i32,
+   |                                 ^^^^^^^^ unknown field
+   |
+   = note: available fields are: `error`, `offset`, `source_path`
+
+error[E0609]: no field `location` on type `rustpython_parser_core::error::BaseError<ParseErrorType>`
+  --> src\main.rs:40:35
+   |
+40 |                         column: e.location.column() as i32,
+   |                                   ^^^^^^^^ unknown field
+   |
+   = note: available fields are: `error`, `offset`, `source_path`
+
+For more information about this error, try `rustc --explain E0609`.
+warning: `verifier` (bin "verifier") generated 1 warning
+error: could not compile `verifier` (bin "verifier") due to 2 previous errors; 1 warning emitted

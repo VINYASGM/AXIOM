@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAxiomStore, IVCU, Candidate } from '@/store/axiom';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
 import { VerificationBreakdown } from './VerificationBreakdown';
-import { Code2, FileCode, CheckCircle2, XCircle, Copy, Download, CornerUpLeft, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Code2, FileCode, CheckCircle2, XCircle, Copy, Download, CornerUpLeft, AlertTriangle, RotateCcw, Rocket, Check, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 
 export function ReviewPanel() {
@@ -67,6 +67,20 @@ export function ReviewPanel() {
         }
     };
 
+    const [isDeploying, setIsDeploying] = useState(false);
+    const { updateIVCUStatus } = useAxiomStore();
+
+    const handleAccept = async () => {
+        if (!currentIVCU?.id) return;
+        setIsDeploying(true);
+
+        // Simulating deployment latency
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        updateIVCUStatus('deployed');
+        setIsDeploying(false);
+    };
+
     return (
         <div className="glass rounded-2xl p-6 h-full flex flex-col">
             <div className="flex items-center justify-between mb-6">
@@ -79,6 +93,23 @@ export function ReviewPanel() {
                     <div className="flex items-center gap-2">
                         <StatusBadge status={currentIVCU.status} />
                         <ConfidenceIndicator confidence={currentIVCU.confidence} size="sm" />
+
+                        {currentIVCU.status !== 'deployed' ? (
+                            <button
+                                onClick={handleAccept}
+                                disabled={isDeploying}
+                                className="ml-4 flex items-center gap-2 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg text-sm font-medium transition-colors border border-green-500/20"
+                            >
+                                {isDeploying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+                                Accept & Deploy
+                            </button>
+                        ) : (
+                            <div className="ml-4 flex items-center gap-2 px-3 py-1.5 bg-green-500/10 text-green-400 rounded-lg text-sm font-medium border border-green-500/10">
+                                <Check className="w-4 h-4" />
+                                Deployed
+                            </div>
+                        )}
+
                         <button
                             onClick={handleUndo}
                             disabled={undoLoading}

@@ -7,7 +7,7 @@ export interface IVCU {
     code: string | null;
     language: string;
     confidence: number;
-    status: 'draft' | 'generating' | 'verifying' | 'verified' | 'failed';
+    status: 'draft' | 'generating' | 'verifying' | 'verified' | 'failed' | 'deployed';
     contracts: Contract[];
     verificationResult: VerificationResult | null;
     retrievedContext?: RetrievedContext;

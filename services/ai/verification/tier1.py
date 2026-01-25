@@ -9,6 +9,12 @@ import tempfile
 import os
 import time
 from typing import Optional
+import grpc
+try:
+    from . import verifier_pb2, verifier_pb2_grpc
+    GRPC_AVAILABLE = True
+except ImportError:
+    GRPC_AVAILABLE = False
 from .result import VerifierResult, VerificationTier
 
 
@@ -20,8 +26,16 @@ class Tier1Verifier:
     - Linting (ruff)
     """
     
-    def __init__(self):
+    def __init__(self, grpc_target="localhost:50051"):
         self.tier = VerificationTier.TIER_1
+        self.channel = None
+        self.stub = None
+        if GRPC_AVAILABLE:
+            try:
+                self.channel = grpc.insecure_channel(grpc_target)
+                self.stub = verifier_pb2_grpc.VerifierServiceStub(self.channel)
+            except Exception as e:
+                print(f"Failed to connect to Rust verifier: {e}")
     
     async def verify_all(self, code: str, language: str = "python") -> list[VerifierResult]:
         """Run all Tier 1 verifiers"""
@@ -47,8 +61,42 @@ class Tier1Verifier:
         return results
     
     async def verify_syntax(self, code: str) -> VerifierResult:
-        """Verify Python syntax using AST parser"""
+        """Verify Python syntax using Rust Verifier Service"""
         start = time.time()
+        
+        # Try Rust service first
+        if self.stub:
+            try:
+                request = verifier_pb2.VerifyRequest(
+                    code=code,
+                    language="python",
+                    checks=["syntax"]
+                )
+                response = self.stub.Verify(request)
+                
+                messages = []
+                errors = []
+                
+                if response.valid:
+                    messages.append("Syntax valid (Rust Verifier)")
+                else:
+                    for issue in response.issues:
+                        if issue.severity == "error":
+                            errors.append(f"Syntax error line {issue.line}: {issue.message}")
+                
+                return VerifierResult(
+                    name="syntax_check_rust",
+                    tier=self.tier,
+                    passed=response.valid,
+                    confidence=1.0 if response.valid else 0.0,
+                    messages=messages,
+                    errors=errors,
+                    duration_ms=(time.time() - start) * 1000
+                )
+            except grpc.RpcError as e:
+                print(f"Rust verifier failed, falling back: {e}")
+
+        # Fallback to local python (existing logic)
         errors = []
         messages = []
         
@@ -56,7 +104,7 @@ class Tier1Verifier:
             ast.parse(code)
             passed = True
             confidence = 1.0
-            messages.append("Syntax is valid")
+            messages.append("Syntax is valid (Fallback)")
         except SyntaxError as e:
             passed = False
             confidence = 0.0
@@ -67,7 +115,7 @@ class Tier1Verifier:
             errors.append(f"Parse error: {str(e)}")
         
         return VerifierResult(
-            name="syntax_check",
+            name="syntax_check_fallback",
             tier=self.tier,
             passed=passed,
             confidence=confidence,

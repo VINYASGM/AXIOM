@@ -383,7 +383,13 @@ function CustomSelect({
     return (
         <div className="relative">
             <button
-                onClick={() => !disabled && setIsOpen(!isOpen)}
+                type="button"
+                onClick={(e) => {
+                    if (!disabled) {
+                        e.stopPropagation();
+                        setIsOpen(!isOpen);
+                    }
+                }}
                 className={`flex items-center gap-2 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white min-w-[100px] justify-between transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/5'}`}
             >
                 <span>{selectedLabel}</span>
@@ -401,16 +407,18 @@ function CustomSelect({
                             initial={{ opacity: 0, y: -5 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -5 }}
-                            className="absolute top-full text-left left-0 mt-1 w-full min-w-[140px] bg-gray-900 border border-white/10 rounded-lg shadow-xl overflow-hidden z-20"
+                            className="absolute top-full text-left left-0 mt-1 w-full min-w-[140px] bg-neutral-900 border border-white/20 rounded-lg shadow-xl shadow-black/50 overflow-hidden z-50"
                         >
                             {options.map((option) => (
                                 <button
                                     key={option.value}
-                                    onClick={() => {
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
                                         onChange(String(option.value));
                                         setIsOpen(false);
                                     }}
-                                    className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 transition-colors ${option.value === value ? 'text-axiom-400 bg-white/5' : 'text-gray-300'}`}
+                                    className={`w-full text-left px-4 py-2 text-sm hover:bg-white/20 transition-colors ${option.value === value ? 'text-axiom-400 bg-white/10 font-bold' : 'text-white'}`}
                                 >
                                     {option.label}
                                 </button>

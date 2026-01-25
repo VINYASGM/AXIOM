@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package verifier;
+
+service VerifierService {
+  rpc Verify (VerifyRequest) returns (VerifyResponse);
+}
+
+message VerifyRequest {
+  string code = 1;
+  string language = 2;
+  repeated string checks = 3; // e.g. ["syntax", "lint", "types"]
+}
+
+message VerifyResponse {
+  bool valid = 1;
+  float score = 2; // 0.0 to 1.0
+  repeated Issue issues = 3;
+}
+
+message Issue {
+  string code = 1;
+  string message = 2;
+  string severity = 3; // "error", "warning", "info"
+  int32 line = 4;
+  int32 column = 5;
+}

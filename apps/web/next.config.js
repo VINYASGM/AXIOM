@@ -6,10 +6,14 @@ const nextConfig = {
         NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080',
     },
     async rewrites() {
+        // Use internal Docker URL if available, otherwise fall back to public URL
+        const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+        console.log(`[Next.js] Rewriting /api requests to: ${apiUrl}`);
+
         return [
             {
                 source: '/api/:path*',
-                destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/:path*`,
+                destination: `${apiUrl}/api/:path*`,
             },
         ];
     },

@@ -12,6 +12,7 @@ from typing import List, Optional
 from .result import VerifierResult, VerificationTier
 from .tier2_tests import UnitTestsVerifier
 from llm import LLMService
+import grpc
 
 class Tier2Verifier:
     """
@@ -21,10 +22,32 @@ class Tier2Verifier:
     - Contract validation
     """
     
-    def __init__(self, llm_service: Optional[LLMService] = None):
+    
+    def __init__(self, llm_service: Optional[LLMService] = None, grpc_target="localhost:50051"):
         self.tier = VerificationTier.TIER_2
         self.llm_service = llm_service
         self.unit_tests_verifier = UnitTestsVerifier(llm_service) if llm_service else None
+        
+        self.channel = None
+        self.stub = None
+        
+        # Try importing generated protos (assuming they are in the same directory or path)
+        try:
+            import sys
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            if current_dir not in sys.path:
+                sys.path.append(current_dir)
+            import verifier_pb2
+            import verifier_pb2_grpc
+            self.verifier_pb2 = verifier_pb2
+            self.verifier_pb2_grpc = verifier_pb2_grpc
+            
+            self.channel = grpc.insecure_channel(grpc_target)
+            self.stub = verifier_pb2_grpc.VerifierServiceStub(self.channel)
+        except ImportError:
+            print("Warning: Rust verifier protos not found. Tier 2 fallback to Python.")
+        except Exception as e:
+            print(f"Warning: Failed to connect to Rust verifier: {e}")
     
     async def verify_all(
         self, 
@@ -73,6 +96,41 @@ class Tier2Verifier:
         Runs in sandbox with timeout.
         """
         start = time.time()
+        if self.stub:
+            try:
+                # Use Rust Verifier
+                request = self.verifier_pb2.VerifyRequest(
+                    code=code,
+                    language="python",
+                    checks=["execution"]
+                )
+                response = self.stub.Verify(request)
+                
+                messages = []
+                errors = []
+                
+                if response.valid:
+                    messages.append("Code executed successfully (Rust Verifier)")
+                else:
+                    for issue in response.issues:
+                        if issue.code == "EXECUTION_ERROR":
+                            errors.append(f"Runtime error: {issue.message}")
+                        elif issue.code == "EXECUTION_FAIL":
+                             errors.append(f"Execution failed: {issue.message}")
+                
+                return VerifierResult(
+                    name="execution_test_rust",
+                    tier=self.tier,
+                    passed=response.valid,
+                    confidence=0.9 if response.valid else 0.2,
+                    messages=messages,
+                    errors=errors,
+                    duration_ms=(time.time() - start) * 1000
+                )
+            except Exception as e:
+                print(f"Rust execution check failed: {e}")
+                # Fallback to python logic
+        
         errors = []
         messages = []
         
@@ -142,7 +200,7 @@ print(output)
             os.unlink(temp_path)
         
         return VerifierResult(
-            name="execution_test",
+            name="execution_test_fallback",
             tier=self.tier,
             passed=passed,
             confidence=confidence,
@@ -223,6 +281,42 @@ print(output)
         Check that functions/classes have proper documentation.
         """
         start = time.time()
+        if self.stub:
+            try:
+                # Use Rust Verifier
+                request = self.verifier_pb2.VerifyRequest(
+                    code=code,
+                    language="python",
+                    checks=["docstrings"]
+                )
+                response = self.stub.Verify(request)
+                
+                messages = []
+                warnings = []
+                
+                if response.valid:
+                    messages.append("Docstring checks passed (Rust Verifier)")
+                else:
+                    for issue in response.issues:
+                         if issue.code == "DOCSTRING_MISSING":
+                             warnings.append(issue.message)
+                
+                # Rust verifier might not return count stats easily in current proto without update
+                # Assuming simple pass/fail for now with warnings
+                
+                return VerifierResult(
+                    name="docstring_check_rust",
+                    tier=self.tier,
+                    passed=response.valid,
+                    confidence=0.95 if response.valid else 0.5,
+                    messages=messages,
+                    warnings=warnings,
+                    duration_ms=(time.time() - start) * 1000
+                )
+            except Exception as e:
+                print(f"Rust docstring check failed: {e}")
+                # Fallback to python
+        
         warnings = []
         messages = []
         
@@ -232,7 +326,7 @@ print(output)
             tree = ast.parse(code)
         except SyntaxError:
             return VerifierResult(
-                name="docstring_check",
+                name="docstring_check_fallback",
                 tier=self.tier,
                 passed=True,
                 confidence=0.0,
@@ -267,7 +361,7 @@ print(output)
             messages.append(f"{documented}/{total_definitions} definitions documented ({ratio*100:.0f}%)")
         
         return VerifierResult(
-            name="docstring_check",
+            name="docstring_check_fallback",
             tier=self.tier,
             passed=passed,
             confidence=confidence,
