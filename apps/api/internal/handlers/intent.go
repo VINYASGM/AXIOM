@@ -94,7 +94,11 @@ func (h *IntentHandler) CreateIVCU(c *gin.Context) {
 		return
 	}
 
-	userID, _ := middleware.GetUserID(c)
+	userID, exists := middleware.GetUserID(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
 
 	// Create IVCU
 	ivcu := models.IVCU{

@@ -42,6 +42,15 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Project Members for RBAC
+CREATE TABLE IF NOT EXISTS project_members (
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(50) NOT NULL DEFAULT 'viewer', -- 'viewer', 'editor', 'admin'
+    added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (project_id, user_id)
+);
+
 -- IVCUs (Intent-Verified Code Units) - The core entity
 CREATE TABLE IF NOT EXISTS ivcus (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

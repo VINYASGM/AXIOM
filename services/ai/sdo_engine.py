@@ -10,6 +10,14 @@ import time
 from typing import List, Optional, Dict, Any
 from sdo import SDO, SDOStatus, Candidate
 from llm import LLMService
+# Use local import or assumes knowledge.py is in path
+try:
+    from knowledge import KnowledgeService, DecisionNode, ReasoningTrace, RetrievedContext
+except ImportError:
+    # Fallback if knowledge service not fully set up
+    from knowledge import KnowledgeService, RetrievedContext
+    DecisionNode = Any
+    ReasoningTrace = Any
 from verification import VerificationOrchestra
 from bandit import ThompsonBandit, GenerationStats, SpeculativeExecutor
 from history import SDOHistory
@@ -174,15 +182,60 @@ class SDOEngine:
                 code = await self.llm.generate_code(prompt_context)
                 model_id = f"gpt-4-turbo-t{temperature:.1f}"
             
+            # Phase 3: Generate Reasoning Trace
+            # In a full PROD system, this would come from Chain-of-Thought output
+            # Here we synthesize it based on the action for demonstration
+            trace = self._generate_trace_for_candidate(sdo, model_id)
+            
             return Candidate(
                 id=str(uuid.uuid4()),
                 code=code,
                 confidence=0.5,
                 model_id=model_id,
-                reasoning=f"Generated with temperature {temperature:.2f}"
+                reasoning=f"Generated with temperature {temperature:.2f}",
+                metadata={"reasoning_trace": trace.model_dump() if trace else None}
             )
         except Exception as e:
             print(f"Generation error: {e}")
+            return None
+
+    def _generate_trace_for_candidate(self, sdo: SDO, model_id: str) -> Optional[ReasoningTrace]:
+        """Synthesize a reasoning trace for the candidate (Mock implementation)"""
+        try:
+            nodes = []
+            
+            # 1. Constraint Analysis
+            nodes.append(DecisionNode(
+                id="1",
+                type="constraint",
+                title="Intent Analysis",
+                description=f"Analyzed intent '{sdo.raw_intent[:20]}...'. Extracted {len(sdo.constraints) if sdo.constraints else 0} constraints.",
+                confidence=0.9
+            ))
+            
+            # 2. Retrieval or Knowledge
+            if sdo.retrieved_context:
+                nodes.append(DecisionNode(
+                    id="2",
+                    type="inference",
+                    title="Context Retrieval",
+                    description="Used RAG to find similar past intents and relevant code chunks.",
+                    confidence=0.95
+                ))
+            
+            # 3. Model Selection
+            nodes.append(DecisionNode(
+                id="3",
+                type="selection",
+                title="Model Selection",
+                description=f"Routed to {model_id} based on complexity estimation.",
+                confidence=0.85,
+                alternatives=["gpt-3.5-turbo", "claude-3-opus"]
+            ))
+            
+            return ReasoningTrace(ivcu_id=sdo.id, nodes=nodes)
+        except Exception as e:
+            print(f"Trace generation failed: {e}")
             return None
     
     async def verify_candidates(

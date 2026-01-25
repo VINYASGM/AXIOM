@@ -78,7 +78,12 @@ func (h *VerificationHandler) Verify(c *gin.Context) {
 		SET status = $1, confidence_score = $2, updated_at = NOW()
 		WHERE id = $3
 	`
-	h.db.Pool().Exec(c.Request.Context(), query, newStatus, avgConfidence, req.IVCUID)
+	_, err := h.db.Pool().Exec(c.Request.Context(), query, newStatus, avgConfidence, req.IVCUID)
+	if err != nil {
+		h.logger.Error("failed to update verification result", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store verification result"})
+		return
+	}
 
 	response := VerifyResponse{
 		VerificationID:  uuid.New(),

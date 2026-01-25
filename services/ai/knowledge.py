@@ -7,6 +7,21 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from memory import MemoryService, RetrievalResult
 
+class DecisionNode(BaseModel):
+    """A single step in the reasoning process"""
+    id: str
+    type: str  # 'constraint' | 'selection' | 'inference'
+    title: str
+    description: str
+    confidence: float
+    alternatives: Optional[List[str]] = None
+
+class ReasoningTrace(BaseModel):
+    """Complete explanation of a generation's decision path"""
+    ivcu_id: str
+    nodes: List[DecisionNode]
+    consistent: bool = True
+
 class RetrievedContext(BaseModel):
     """Contains all retrieved context for a generation task"""
     code_chunks: List[RetrievalResult]

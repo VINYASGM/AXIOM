@@ -52,7 +52,11 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 		return
 	}
 
-	userID, _ := middleware.GetUserID(c)
+	userID, exists := middleware.GetUserID(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
 
 	// Fetch the IVCU
 	query := `SELECT raw_intent, contracts, generation_params FROM ivcus WHERE id = $1`

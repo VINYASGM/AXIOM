@@ -4,12 +4,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAxiomStore, IVCU, Candidate } from '@/store/axiom';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
 import { VerificationBreakdown } from './VerificationBreakdown';
-import { Code2, FileCode, CheckCircle2, XCircle, Copy, Download, CornerUpLeft, AlertTriangle, RotateCcw, Rocket, Check, Loader2 } from 'lucide-react';
+import { ReasoningTracePanel } from './ReasoningTracePanel';
+import { Code2, FileCode, CheckCircle2, XCircle, Copy, Download, CornerUpLeft, AlertTriangle, RotateCcw, Rocket, Check, Loader2, Brain } from 'lucide-react';
 import { useState } from 'react';
 
 export function ReviewPanel() {
     const { currentIVCU, isGenerating, setCurrentIVCU } = useAxiomStore();
-    const [activeTab, setActiveTab] = useState<'code' | 'verification' | 'sources'>('code');
+    const [activeTab, setActiveTab] = useState<'code' | 'verification' | 'sources' | 'trace'>('code');
     const [copied, setCopied] = useState(false);
 
     const copyCode = () => {
@@ -151,6 +152,13 @@ export function ReviewPanel() {
                             }`}
                     >
                         Sources
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('trace')}
+                        className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-colors ${activeTab === 'trace' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'
+                            }`}
+                    >
+                        Why?
                     </button>
                 </div>
             )}
@@ -371,6 +379,10 @@ export function ReviewPanel() {
                                     </div>
                                 )}
                             </div>
+                        )}
+
+                        {activeTab === 'trace' && (
+                            <ReasoningTracePanel />
                         )}
                     </motion.div>
                 ) : (

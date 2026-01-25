@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: axiom-api
+  labels:
+    app: axiom-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: axiom-api
+  template:
+    metadata:
+      labels:
+        app: axiom-api
+    spec:
+      containers:
+        - name: api
+          image: axiom-api:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: axiom-secrets
+                  key: database-url
+            - name: REDIS_URL
+              value: "redis://axiom-redis:6379"
+            - name: AI_SERVICE_URL
+              value: "http://axiom-ai:8000"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: axiom-secrets
+                  key: jwt-secret
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: axiom-ai
+  labels:
+    app: axiom-ai
+spec:
+  replicas: 1 # Scale manually for now due to cost/state
+  selector:
+    matchLabels:
+      app: axiom-ai
+  template:
+    metadata:
+      labels:
+        app: axiom-ai
+    spec:
+      containers:
+        - name: ai
+          image: axiom-ai:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: axiom-secrets
+                  key: openai-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: axiom-secrets
+                  key: database-url
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: axiom-web
+  labels:
+    app: axiom-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: axiom-web
+  template:
+    metadata:
+      labels:
+        app: axiom-web
+    spec:
+      containers:
+        - name: web
+          image: axiom-web:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NEXT_PUBLIC_API_URL
+              value: "https://api.axiom.dev" # Example ingress URL
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

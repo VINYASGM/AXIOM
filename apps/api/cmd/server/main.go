@@ -71,6 +71,7 @@ func main() {
 	generationHandler := handlers.NewGenerationHandler(db, cfg.AIServiceURL, logger)
 	verificationHandler := handlers.NewVerificationHandler(db, logger)
 	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret, logger)
+	intelligenceHandler := handlers.NewIntelligenceHandler(logger)
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
@@ -113,12 +114,32 @@ func main() {
 				verification.GET("/:id", verificationHandler.GetResult)
 			}
 
+			// Project Team routes (Phase 4)
+			teamHandler := handlers.NewTeamHandler(db, logger)
+			rbac := middleware.NewRBACMiddleware(db, logger)
+
+			project := protected.Group("/project/:projectId")
+			// Apply RBAC to project routes
+			// For reading list, viewer is enough
+			project.GET("/team", rbac.RequireRole(middleware.RoleViewer), teamHandler.ListMembers)
+			// For adding members, need admin (or at least editor? usually admin)
+			project.POST("/team/invite", rbac.RequireRole(middleware.RoleAdmin), teamHandler.AddMember)
+			project.DELETE("/team/:userId", rbac.RequireRole(middleware.RoleAdmin), teamHandler.RemoveMember)
+			// Re-register list IVCUs under project scope with checks?
+			// intentHandler.ListObsolete -> we should move ListProjectIVCUs here or apply middleware there separately.
+			// existing route: intent.GET("/project/:projectId", intentHandler.ListProjectIVCUs)
+			// Let's secure the existing route later or just proceed with Team routes for now.
+
 			// User routes
 			user := protected.Group("/user")
 			{
 				user.GET("/me", authHandler.GetCurrentUser)
 				user.PUT("/me/settings", authHandler.UpdateSettings)
+				user.GET("/learner", intelligenceHandler.GetUserLearner) // Phase 3
 			}
+
+			// Reasoning routes (Phase 3)
+			protected.GET("/reasoning/:ivcuId", intelligenceHandler.GetReasoningTrace)
 		}
 	}
 

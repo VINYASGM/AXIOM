@@ -76,7 +76,18 @@ export interface CostEstimate {
     model: string;
 }
 
+// Phase 4: Project & Team
+export interface Project {
+    id: string;
+    name: string;
+    security_context: string;
+}
+
 interface AxiomState {
+    // Phase 4
+    currentProject: Project | null;
+    setCurrentProject: (project: Project | null) => void;
+
     // Current state
     currentIVCU: IVCU | null;
     isGenerating: boolean;
@@ -122,6 +133,7 @@ const initialState = {
     parseConfidence: 0,
     suggestedRefinements: [],
     token: null,
+    currentProject: { id: 'proj-123', name: 'Demo Project', security_context: 'public' }, // Mock default project
 };
 
 export const useAxiomStore = create<AxiomState>((set) => ({
@@ -158,6 +170,8 @@ export const useAxiomStore = create<AxiomState>((set) => ({
     })),
 
     setToken: (token) => set({ token }),
+
+    setCurrentProject: (project: Project | null) => set({ currentProject: project }),
 
     reset: () => set(initialState),
 }));

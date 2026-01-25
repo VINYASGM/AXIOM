@@ -3,7 +3,13 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAxiomStore } from '@/store/axiom';
-import { Send, Loader2, Sparkles, Lightbulb, DollarSign, AlertCircle } from 'lucide-react';
+import { Send, Loader2, Sparkles, Lightbulb, DollarSign, AlertCircle, ArrowRight, Zap, Play, Users } from 'lucide-react';
+
+// Mock active users for Phase 4 demo
+const activeUsers = [
+    { id: '1', name: 'Alice', color: 'bg-purple-500' },
+    { id: '2', name: 'Bob', color: 'bg-green-500' }
+];
 
 const LANGUAGES = [
     { value: 'typescript', label: 'TypeScript' },
@@ -202,9 +208,23 @@ export function IntentCanvas() {
     return (
         <div className="glass rounded-2xl p-6">
             <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-axiom-400" />
-                    <h2 className="text-lg font-semibold text-white">Intent Canvas</h2>
+                <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-2 text-axiom-400">
+                        <Sparkles className="w-5 h-5" />
+                        <span className="font-semibold tracking-wide uppercase text-sm">Intent Canvas</span>
+                    </div>
+
+                    {/* Active Collaborators (Phase 4) */}
+                    <div className="flex items-center gap-2">
+                        <div className="flex -space-x-2">
+                            {activeUsers.map(user => (
+                                <div key={user.id} className={`w-6 h-6 rounded-full ${user.color} border border-black flex items-center justify-center text-[10px] font-bold text-white`} title={`${user.name} is editing`}>
+                                    {user.name[0]}
+                                </div>
+                            ))}
+                        </div>
+                        <span className="text-xs text-gray-500 px-2">+ You</span>
+                    </div>
                 </div>
 
                 {isParsing && (

@@ -107,6 +107,24 @@ type Project struct {
 	UpdatedAt       time.Time              `json:"updated_at"`
 }
 
+// Organization represents a group of users
+type Organization struct {
+	ID              uuid.UUID              `json:"id"`
+	Name            string                 `json:"name"`
+	SecurityContext string                 `json:"security_context"`
+	Settings        map[string]interface{} `json:"settings"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
+}
+
+// ProjectMember represents a user's role in a project
+type ProjectMember struct {
+	ProjectID uuid.UUID `json:"project_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Role      string    `json:"role"` // viewer, editor, admin
+	AddedAt   time.Time `json:"added_at"`
+}
+
 // GenerationLog tracks generation costs
 type GenerationLog struct {
 	ID        uuid.UUID `json:"id"`
