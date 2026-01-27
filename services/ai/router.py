@@ -383,16 +383,62 @@ def get_router() -> LLMRouter:
 
 
 def init_router(llm_service=None) -> LLMRouter:
-    """Initialize router with providers."""
+    """Initialize router with all available providers."""
     global _global_router
     _global_router = LLMRouter()
     
     # Always register mock as fallback
     _global_router.register_provider("mock", MockProvider())
-    _global_router.set_fallback("mock")
     
-    # Register OpenAI if service provided
+    # Import real providers
+    try:
+        from models.providers import (
+            create_provider,
+            get_available_providers,
+            DeepSeekProvider,
+            OpenAIEnhancedProvider,
+            AnthropicProvider,
+            GoogleProvider
+        )
+        import os
+        
+        # Register DeepSeek (recommended default - cheap + accurate)
+        deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+        if deepseek_key and deepseek_key != "your-deepseek-api-key":
+            provider = DeepSeekProvider(deepseek_key)
+            _global_router.register_provider("deepseek", provider)
+            _global_router.set_fallback("deepseek")  # Best fallback due to cost
+        
+        # Register OpenAI
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key and openai_key != "your-openai-api-key":
+            provider = OpenAIEnhancedProvider(openai_key)
+            _global_router.register_provider("openai", provider)
+            if not _global_router.fallback or _global_router.fallback == "mock":
+                _global_router.set_fallback("openai")
+        
+        # Register Anthropic
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        if anthropic_key and anthropic_key != "your-anthropic-api-key":
+            provider = AnthropicProvider(anthropic_key)
+            _global_router.register_provider("anthropic", provider)
+        
+        # Register Google
+        google_key = os.getenv("GOOGLE_API_KEY")
+        if google_key and google_key != "your-google-api-key":
+            provider = GoogleProvider(google_key)
+            _global_router.register_provider("google", provider)
+        
+    except ImportError as e:
+        print(f"Warning: Could not import providers: {e}")
+    
+    # Legacy: Register OpenAI wrapper if llm_service provided
     if llm_service and llm_service.openai_key:
-        _global_router.register_provider("openai", OpenAIProvider(llm_service))
+        _global_router.register_provider("openai_legacy", OpenAIProvider(llm_service))
+    
+    # Set mock as fallback if nothing else available
+    if not _global_router.fallback:
+        _global_router.set_fallback("mock")
     
     return _global_router
+

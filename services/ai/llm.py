@@ -1,15 +1,27 @@
 """
 LLM Service Layer
-Handles interactions with OpenAI/Anthropic via LangChain.
+Handles interactions with real LLM providers (DeepSeek, OpenAI, Anthropic, Google).
 Includes embedding generation for vector memory.
 """
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, AsyncIterator
 import os
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
 from pydantic import BaseModel, Field
 from sdo import SDO
+
+# Import real providers
+from models.providers import (
+    create_provider,
+    get_available_providers,
+    OpenAIEnhancedProvider,
+    DeepSeekProvider,
+    AnthropicProvider,
+    GoogleProvider
+)
+from router import ChatRequest, ChatMessage
+
 
 class IntentParsingResult(BaseModel):
     action: str = Field(description="The primary action (create, modify, delete, test)")
@@ -23,15 +35,155 @@ class LLMService:
     def __init__(self):
         self.openai_key = os.getenv("OPENAI_API_KEY")
         self.anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        self.deepseek_key = os.getenv("DEEPSEEK_API_KEY")
+        self.google_key = os.getenv("GOOGLE_API_KEY")
         
-        # Initialize models if keys are present
-        self.model = None
+        # Initialize real providers
+        self.providers: Dict[str, Any] = {}
+        self.default_provider: Optional[str] = None
+        
+        # Priority order: DeepSeek (cheap + accurate) > OpenAI > Anthropic > Google
+        if self.deepseek_key and self.deepseek_key != "your-deepseek-api-key":
+            self.providers["deepseek"] = DeepSeekProvider(self.deepseek_key)
+            self.default_provider = "deepseek"
+        
+        if self.openai_key and self.openai_key != "your-openai-api-key":
+            self.providers["openai"] = OpenAIEnhancedProvider(self.openai_key)
+            if not self.default_provider:
+                self.default_provider = "openai"
+        
+        if self.anthropic_key and self.anthropic_key != "your-anthropic-api-key":
+            self.providers["anthropic"] = AnthropicProvider(self.anthropic_key)
+            if not self.default_provider:
+                self.default_provider = "anthropic"
+        
+        if self.google_key and self.google_key != "your-google-api-key":
+            self.providers["google"] = GoogleProvider(self.google_key)
+            if not self.default_provider:
+                self.default_provider = "google"
+        
+        # Embeddings (OpenAI only for now)
         self.embeddings = None
-        
-        if self.openai_key:
-            self.model = ChatOpenAI(model="gpt-4-turbo-preview", temperature=0.1)
+        if self.openai_key and self.openai_key != "your-openai-api-key":
             self.embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-        # Fallback or alternative could be Anthropic
+        
+        # LangChain model for structured parsing (fallback)
+        self.model = None
+        if self.openai_key and self.openai_key != "your-openai-api-key":
+            self.model = ChatOpenAI(model="gpt-4-turbo-preview", temperature=0.1)
+    
+    def get_available_providers(self) -> Dict[str, bool]:
+        """Return which providers are configured."""
+        return {name: True for name in self.providers.keys()}
+    
+    async def generate_with_provider(
+        self,
+        prompt: str,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        system_prompt: str = "You are an expert software developer.",
+        max_tokens: int = 4096,
+        temperature: float = 0.1
+    ) -> Dict[str, Any]:
+        """
+        Generate using the specified provider. Falls back to default if not specified.
+        """
+        provider_name = provider or self.default_provider
+        
+        if not provider_name or provider_name not in self.providers:
+            # Fallback to mock if no provider configured
+            return self._mock_generate(prompt)
+        
+        llm_provider = self.providers[provider_name]
+        
+        # Select model based on provider
+        if not model:
+            model_map = {
+                "deepseek": "deepseek-chat",
+                "openai": "gpt-4o",
+                "anthropic": "claude-sonnet-4-20250514",
+                "google": "gemini-2.0-flash"
+            }
+            model = model_map.get(provider_name, "deepseek-chat")
+        
+        request = ChatRequest(
+            model=model,
+            messages=[
+                ChatMessage(role="system", content=system_prompt),
+                ChatMessage(role="user", content=prompt)
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature
+        )
+        
+        try:
+            response = await llm_provider.chat(request)
+            return {
+                "content": response.content,
+                "model": response.model,
+                "provider": response.provider,
+                "usage": response.usage,
+                "latency_ms": response.latency_ms
+            }
+        except Exception as e:
+            print(f"Provider {provider_name} failed: {e}")
+            return self._mock_generate(prompt)
+    
+    async def generate_stream(
+        self,
+        prompt: str,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        system_prompt: str = "You are an expert software developer."
+    ) -> AsyncIterator[str]:
+        """Stream generation results token by token."""
+        provider_name = provider or self.default_provider
+        
+        if not provider_name or provider_name not in self.providers:
+            yield self._mock_generate(prompt)["content"]
+            return
+        
+        llm_provider = self.providers[provider_name]
+        
+        if not model:
+            model_map = {
+                "deepseek": "deepseek-chat",
+                "openai": "gpt-4o",
+                "anthropic": "claude-sonnet-4-20250514",
+                "google": "gemini-2.0-flash"
+            }
+            model = model_map.get(provider_name, "deepseek-chat")
+        
+        request = ChatRequest(
+            model=model,
+            messages=[
+                ChatMessage(role="system", content=system_prompt),
+                ChatMessage(role="user", content=prompt)
+            ],
+            max_tokens=4096,
+            temperature=0.1
+        )
+        
+        try:
+            if hasattr(llm_provider, 'chat_stream'):
+                async for token in llm_provider.chat_stream(request):
+                    yield token
+            else:
+                response = await llm_provider.chat(request)
+                yield response.content
+        except Exception as e:
+            print(f"Stream failed: {e}")
+            yield self._mock_generate(prompt)["content"]
+    
+    def _mock_generate(self, prompt: str) -> Dict[str, Any]:
+        """Fallback mock for when no providers are configured."""
+        return {
+            "content": f"# Mock Response\n\n```python\ndef generated_function():\n    # TODO: Configure LLM provider\n    # Prompt was: {prompt[:100]}...\n    pass\n```",
+            "model": "mock",
+            "provider": "mock",
+            "usage": {"input_tokens": 0, "output_tokens": 0},
+            "latency_ms": 0
+        }
     
     async def embed_text(self, text: str) -> List[float]:
         """
