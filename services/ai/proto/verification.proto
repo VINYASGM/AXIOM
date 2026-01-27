@@ -190,3 +190,116 @@ message GetResultResponse {
   VerificationComplete result = 3;
   bool found = 4;
 }
+
+// =============================================================================
+// PROOF-CARRYING CODE (PCC) - Phase 6
+// Cryptographic proofs for verified IVCUs
+// =============================================================================
+
+// Core proof structure that travels with verified code
+message VerificationProof {
+  string proof_id = 1;
+  string ivcu_id = 2;
+  string candidate_id = 3;
+  string code_hash = 4;           // SHA-256 of verified code
+  int64 timestamp = 5;
+  string version = 6;             // Proof format version
+  
+  // Verification trace
+  repeated TierProof tier_proofs = 7;
+  
+  // Cryptographic signature (Ed25519)
+  bytes signature = 8;
+  string signer_id = 9;
+  string public_key = 10;
+  
+  // Optional SMT proof
+  SMTProof smt_proof = 11;
+  
+  // Metadata
+  float overall_confidence = 12;
+  map<string, string> metadata = 13;
+}
+
+// Proof for a single verification tier
+message TierProof {
+  string tier = 1;                // tier0, tier1, tier2, tier3
+  bool passed = 2;
+  float confidence = 3;
+  float execution_time_ms = 4;
+  repeated VerifierProof verifiers = 5;
+}
+
+// Proof from an individual verifier
+message VerifierProof {
+  string verifier_name = 1;
+  string verifier_version = 2;
+  bool passed = 3;
+  float confidence = 4;
+  repeated string errors = 5;
+  repeated string warnings = 6;
+  bytes proof_data = 7;           // Verifier-specific proof bytes
+  map<string, string> details = 8;
+}
+
+// SMT Solver proof
+message SMTProof {
+  string solver = 1;              // z3, cvc5, bitwuzla
+  string solver_version = 2;
+  string status = 3;              // sat, unsat, unknown, timeout
+  float solve_time_ms = 4;
+  bytes proof_bytes = 5;          // Serialized proof certificate
+  repeated SMTAssertion assertions = 6;
+}
+
+message SMTAssertion {
+  string name = 1;
+  string expression = 2;
+  string type = 3;                // precondition, postcondition, invariant
+  bool verified = 4;
+}
+
+// Generate a proof for a verification result
+message GenerateProofRequest {
+  string ivcu_id = 1;
+  string candidate_id = 2;
+  string code = 3;
+  VerificationComplete verification_result = 4;
+  repeated Contract contracts = 5;
+  bool sign_proof = 6;
+}
+
+message GenerateProofResponse {
+  VerificationProof proof = 1;
+  bool success = 2;
+  string error = 3;
+}
+
+// Verify a proof independently
+message VerifyProofRequest {
+  VerificationProof proof = 1;
+  string code = 2;                // Original code to verify hash
+  bytes public_key = 3;           // Optional: verify signature
+}
+
+message VerifyProofResponse {
+  bool valid = 1;
+  bool signature_valid = 2;
+  bool hash_valid = 3;
+  string error = 4;
+}
+
+// Export proof bundle
+message ExportBundleRequest {
+  string ivcu_id = 1;
+  string candidate_id = 2;
+  bool include_code = 3;
+  bool include_tests = 4;
+}
+
+message ExportBundleResponse {
+  bytes bundle = 1;               // JSON bundle
+  string content_type = 2;
+  bool success = 3;
+  string error = 4;
+}

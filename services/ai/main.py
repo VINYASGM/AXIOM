@@ -970,6 +970,194 @@ async def check_policy(request: PolicyCheckRequest):
     return result.to_dict()
 
 
+# ============================================================================
+# Proof-Carrying Code (PCC) Endpoints - Phase 6
+# ============================================================================
+
+class GenerateProofRequest(BaseModel):
+    sdo_id: str
+    candidate_id: Optional[str] = None
+    contracts: Optional[List[Dict[str, Any]]] = None
+
+class GenerateProofResponse(BaseModel):
+    proof_id: str
+    ivcu_id: str
+    code_hash: str
+    signature: str
+    overall_confidence: float
+    success: bool
+    error: Optional[str] = None
+
+class VerifyProofRequest(BaseModel):
+    proof: Dict[str, Any]
+    code: str
+    public_key: Optional[str] = None
+
+class VerifyProofResponse(BaseModel):
+    valid: bool
+    hash_valid: bool
+    signature_valid: bool
+    errors: List[str] = []
+
+class ExportBundleRequest(BaseModel):
+    sdo_id: str
+    candidate_id: Optional[str] = None
+    include_tests: bool = False
+
+
+@app.post("/proof/generate", response_model=GenerateProofResponse)
+async def generate_proof(request: GenerateProofRequest):
+    """
+    Generate a cryptographic proof for a verified IVCU.
+    """
+    from verification import get_proof_generator
+    
+    # Get SDO from database
+    sdo_data = await database_service.get_sdo(request.sdo_id)
+    if not sdo_data:
+        return GenerateProofResponse(
+            proof_id="",
+            ivcu_id=request.sdo_id,
+            code_hash="",
+            signature="",
+            overall_confidence=0.0,
+            success=False,
+            error="SDO not found"
+        )
+    
+    from sdo import SDO
+    sdo = SDO(**sdo_data)
+    
+    if not sdo.code:
+        return GenerateProofResponse(
+            proof_id="",
+            ivcu_id=request.sdo_id,
+            code_hash="",
+            signature="",
+            overall_confidence=0.0,
+            success=False,
+            error="No verified code found"
+        )
+    
+    # Get verification result
+    verification_result = sdo.verification_result or {}
+    
+    # Generate proof
+    proof_gen = get_proof_generator()
+    proof = await proof_gen.generate_proof(
+        ivcu_id=sdo.id,
+        candidate_id=request.candidate_id or sdo.selected_candidate_id or "",
+        code=sdo.code,
+        verification_result=verification_result,
+        contracts=[c.model_dump() for c in sdo.contracts] if sdo.contracts else request.contracts,
+        sign=True
+    )
+    
+    return GenerateProofResponse(
+        proof_id=proof.proof_id,
+        ivcu_id=proof.ivcu_id,
+        code_hash=proof.code_hash,
+        signature=proof.signature.hex() if proof.signature else "",
+        overall_confidence=proof.overall_confidence,
+        success=True
+    )
+
+
+@app.post("/proof/verify", response_model=VerifyProofResponse)
+async def verify_proof(request: VerifyProofRequest):
+    """
+    Verify a proof independently.
+    """
+    from verification import get_proof_generator, VerificationProof
+    
+    proof_gen = get_proof_generator()
+    
+    # Reconstruct proof from dict
+    proof = VerificationProof(
+        proof_id=request.proof.get("proof_id", ""),
+        ivcu_id=request.proof.get("ivcu_id", ""),
+        candidate_id=request.proof.get("candidate_id", ""),
+        code_hash=request.proof.get("code_hash", ""),
+        timestamp=request.proof.get("timestamp", 0),
+        signature=bytes.fromhex(request.proof.get("signature", "")),
+        signer_id=request.proof.get("signer_id", ""),
+        public_key=request.proof.get("public_key", ""),
+        overall_confidence=request.proof.get("overall_confidence", 0.0)
+    )
+    
+    public_key_bytes = None
+    if request.public_key:
+        try:
+            import base64
+            public_key_bytes = base64.b64decode(request.public_key)
+        except Exception:
+            pass
+    
+    result = proof_gen.verify_proof(proof, request.code, public_key_bytes)
+    
+    return VerifyProofResponse(
+        valid=result.get("valid", False),
+        hash_valid=result.get("hash_valid", False),
+        signature_valid=result.get("signature_valid", False),
+        errors=result.get("errors", [])
+    )
+
+
+@app.post("/proof/export")
+async def export_proof_bundle(request: ExportBundleRequest):
+    """
+    Export a proof bundle for an IVCU.
+    """
+    from verification import get_proof_bundler
+    
+    # Get SDO
+    sdo_data = await database_service.get_sdo(request.sdo_id)
+    if not sdo_data:
+        raise HTTPException(status_code=404, detail="SDO not found")
+    
+    from sdo import SDO
+    sdo = SDO(**sdo_data)
+    
+    if not sdo.code:
+        raise HTTPException(status_code=400, detail="No verified code found")
+    
+    bundler = get_proof_bundler()
+    bundle = await bundler.create_bundle(
+        ivcu_id=sdo.id,
+        candidate_id=request.candidate_id or sdo.selected_candidate_id or "",
+        code=sdo.code,
+        verification_result=sdo.verification_result or {},
+        contracts=[c.model_dump() for c in sdo.contracts] if sdo.contracts else None,
+        tests=sdo.test_code if request.include_tests else None
+    )
+    
+    return {
+        "bundle": bundle.to_json(),
+        "ivcu_id": sdo.id,
+        "code_hash": bundle.code_hash,
+        "created_at": bundle.created_at
+    }
+
+
+@app.get("/proof/public-key")
+async def get_public_key():
+    """
+    Get the server's public key for proof verification.
+    """
+    from verification import get_proof_signer
+    
+    signer = get_proof_signer()
+    key = signer.load_or_create_key()
+    signer.current_key = key
+    
+    return {
+        "key_id": key.key_id,
+        "public_key_pem": signer.get_public_key_pem(),
+        "algorithm": "Ed25519"
+    }
+
+
+
 if __name__ == "__main__":
     import uvicorn
     print("DEBUG: STARTING ON PORT 8002")
