@@ -83,6 +83,13 @@ export interface Project {
     security_context: string;
 }
 
+export interface LearnerProfile {
+    user_id: string;
+    global_level: 'novice' | 'intermediate' | 'expert';
+    skills: Record<string, number>;
+    last_updated: string;
+}
+
 interface AxiomState {
     // Phase 4
     currentProject: Project | null;
@@ -94,6 +101,7 @@ interface AxiomState {
 
     // Auth
     token: string | null;
+    setToken: (token: string | null) => void;
 
     // Intent input
     rawIntent: string;
@@ -118,7 +126,10 @@ interface AxiomState {
     setBudgetWarning: (warning: string | null) => void;
     updateIVCUStatus: (status: IVCU['status']) => void;
     updateIVCUCode: (code: string, confidence: number) => void;
-    setToken: (token: string | null) => void;
+    // Learner
+    learnerProfile: LearnerProfile | null;
+    fetchLearnerProfile: (token: string) => Promise<void>;
+
     reset: () => void;
 }
 
@@ -133,7 +144,8 @@ const initialState = {
     parseConfidence: 0,
     suggestedRefinements: [],
     token: null,
-    currentProject: { id: 'proj-123', name: 'Demo Project', security_context: 'public' }, // Mock default project
+    currentProject: { id: '123e4567-e89b-12d3-a456-426614174000', name: 'Demo Project', security_context: 'public' }, // Mock default project
+    learnerProfile: null,
 };
 
 export const useAxiomStore = create<AxiomState>((set) => ({
@@ -172,6 +184,22 @@ export const useAxiomStore = create<AxiomState>((set) => ({
     setToken: (token) => set({ token }),
 
     setCurrentProject: (project: Project | null) => set({ currentProject: project }),
+
+    // Learner Model
+    learnerProfile: null,
+    fetchLearnerProfile: async (token: string) => {
+        try {
+            const res = await fetch('/api/v1/user/learner', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                set({ learnerProfile: data });
+            }
+        } catch (err) {
+            console.error("Failed to fetch learner profile", err);
+        }
+    },
 
     reset: () => set(initialState),
 }));

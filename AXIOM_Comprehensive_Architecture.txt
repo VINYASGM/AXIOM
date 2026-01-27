@@ -1,8 +1,32 @@
 ================================================================================
                     AXIOM: COMPREHENSIVE ARCHITECTURE PLAN
                Complete Technical Specification for Implementation
-                              Version 1.0 | 2026-01-19
+                              Version 2.1 | 2026-01-25
 ================================================================================
+
+REVISION HISTORY
+================
+v2.1 (2026-01-25): Optimization & Customization Update
+  - Introduced User-Customizable Model Selection paradigm
+  - Added DeepSeek-V3, Qwen3-8B, and Gemini 2.0 models
+  - Upgraded Vector Store recommendation to pgvectorscale
+  - Added DGraph as open-source graph alternative
+  - Integrated SMT Solver Portfolio (Z3 + CVC5 + Bitwuzla)
+  - Updated embedding models (Gemini/VoyageAI) for 80% cost reduction
+
+v2.0 (2026-01-25): Major architectural improvements
+  - Added WASM-based sandboxed code execution
+  - Upgraded to gRPC streaming for AI inference
+  - Added Tree-sitter incremental parsing (Tier 0)
+  - Introduced Proof-Carrying Code architecture
+  - Unified Memory Layer with GraphRAG
+  - Added Event Sourcing for IVCU history
+  - Enhanced Speculative Decoding with pruned candidate trees
+  - Multi-tier model inference architecture
+  - Upgraded NATS to JetStream
+  - Added AI-driven formal verification
+
+v1.0 (2026-01-19): Initial comprehensive architecture
 
 
 TABLE OF CONTENTS
@@ -16,10 +40,10 @@ TABLE OF CONTENTS
    4.2 Semantic Control Plane
    4.3 AI Layer
    4.4 Verification Layer
-   4.5 Memory Layer
+   4.5 Memory Layer (GraphRAG)
    4.6 Infrastructure Layer
 5. Data Models & Schemas
-6. API Specifications
+6. API Specifications (REST + gRPC)
 7. Technology Stack
 8. Implementation Roadmap
 9. Security Architecture
@@ -40,10 +64,13 @@ KEY DIFFERENTIATORS:
 • Confidence-scored, not binary pass/fail
 • Economically controlled, not unbounded
 • Explainable, not opaque
+• Proof-carrying, not trust-dependent (NEW v2.0)
+• Event-sourced, not state-mutating (NEW v2.0)
 
 TARGET OUTCOME:
 Users design systems at semantic level; code is derived artifact.
 Trust is structural; errors are caught before users see them.
+Verification proofs travel with code for third-party validation.
 
 
 ================================================================================
@@ -74,7 +101,7 @@ P5: CONSEQUENCES VISIBLE BEFORE ACTIONS
     Users know what WILL happen before committing.
 
 P6: EVERYTHING IS REVERSIBLE
-    Default: all actions can be undone.
+    Default: all actions can be undone via event replay.
     Irreversibility requires explicit acknowledgment.
 
 P7: UNDERSTANDING IS PRESERVED
@@ -91,27 +118,29 @@ P7: UNDERSTANDING IS PRESERVED
 • User as final verifier
 • Hidden complexity
 • Configuration as personalization
+• Mutable state without history
 
 
 ================================================================================
 3. SYSTEM ARCHITECTURE OVERVIEW
 ================================================================================
 
-3.1 HIGH-LEVEL ARCHITECTURE
-----------------------------
+3.1 HIGH-LEVEL ARCHITECTURE (v2.0)
+----------------------------------
 
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                              AXIOM PLATFORM                                 │
+│                           AXIOM PLATFORM v2.0                              │
 ├────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐ │
 │  │                         FRONTEND LAYER                                 │ │
 │  │  Intent Canvas │ Review Panel │ Monitor │ Adaptive Scaffolding        │ │
+│  │                    [gRPC-Web Streaming]                                │ │
 │  └───────────────────────────────────┬───────────────────────────────────┘ │
 │                                      │                                      │
 │  ┌───────────────────────────────────▼───────────────────────────────────┐ │
 │  │                    AI SECURITY GATEWAY                                 │ │
-│  │    Input Sanitizer │ Output Validator │ Audit Logger                   │ │
+│  │    Input Sanitizer │ Output Validator │ Audit Logger (Event Stream)   │ │
 │  └───────────────────────────────────┬───────────────────────────────────┘ │
 │                                      │                                      │
 │  ┌───────────────────────────────────▼───────────────────────────────────┐ │
@@ -122,45 +151,48 @@ P7: UNDERSTANDING IS PRESERVED
 │  │  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘  │ │
 │  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐  │ │
 │  │  │Orchestration │ │Reasoning    │ │Deployment    │ │Collaboration │  │ │
-│  │  │Service       │ │Trace Service│ │Service       │ │Service       │  │ │
+│  │  │(Temporal)    │ │Trace Service│ │Service       │ │Service       │  │ │
 │  │  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘  │ │
 │  └───────────────────────────────────┬───────────────────────────────────┘ │
 │                                      │                                      │
 │  ┌──────────────┬───────────────┬────▼────────┬──────────────────────────┐ │
 │  │ AI LAYER    │ VERIFICATION  │ MEMORY      │ PROVENANCE               │ │
-│  │             │ ORCHESTRA     │ LAYER       │ CHAIN                    │ │
+│  │             │ ORCHESTRA     │ (GraphRAG)  │ CHAIN                    │ │
 │  │             │               │             │                          │ │
-│  │ Model Router│ Syntax Check  │ Working Mem │ Model Attestation        │ │
-│  │ SDO Engine  │ Type Checker  │ Project Mem │ Lineage Tracking         │ │
-│  │ Agent Pool  │ Test Runner   │ Org Memory  │ Signatures               │ │
-│  │ Cost Oracle │ SMT Solver    │ Vector Store│                          │ │
-│  │             │ Fuzzer        │ Graph DB    │                          │ │
+│  │ Model Router│ Tree-sitter   │ Working Mem │ Proof Certificates       │ │
+│  │ SDO Engine  │ WASM Sandbox  │ Project Mem │ Model Attestation        │ │
+│  │ Agent Pool  │ Type Checker  │ Org Memory  │ Lineage Tracking         │ │
+│  │ Cost Oracle │ SMT Solver    │ Vector+Graph│ Event Store              │ │
+│  │ (gRPC Int.) │ Fuzzer        │ (Unified)   │                          │ │
 │  └──────────────┴───────────────┴─────────────┴──────────────────────────┘ │
 │                                      │                                      │
 │  ┌───────────────────────────────────▼───────────────────────────────────┐ │
 │  │                    INFRASTRUCTURE LAYER                                │ │
-│  │  Compute │ Storage │ Message Queue │ Observability │ Security Contexts│ │
+│  │  Compute │ Storage │ JetStream │ Observability │ Security Contexts    │ │
 │  └───────────────────────────────────────────────────────────────────────┘ │
 │                                                                             │
 └────────────────────────────────────────────────────────────────────────────┘
 
 
-3.2 REQUEST FLOW
-----------------
+3.2 REQUEST FLOW (v2.0)
+------------------------
 
 1. User types intent in Intent Canvas
-2. System interprets in real-time → shows understanding
-3. User confirms/refines until satisfied
-4. Request passes through AI Security Gateway
-5. Economic Control Plane estimates cost, user approves if threshold exceeded
-6. Speculation Engine checks cache for similar intents
-7. Model Router selects appropriate model(s)
-8. SDO Engine generates candidates in parallel
-9. Verification Orchestra validates candidates
-10. Reasoning Trace Service captures WHY decisions were made
-11. Best verified candidate passes through Security Gateway (output validation)
-12. Result presented to user with confidence score
-13. User can: Accept, Drill Down, Refine Intent, Override (rare)
+2. Tree-sitter provides real-time syntax highlighting and structure
+3. System interprets via gRPC streaming → shows understanding incrementally
+4. User confirms/refines until satisfied
+5. Request passes through AI Security Gateway
+6. Economic Control Plane estimates cost, user approves if threshold exceeded
+7. Speculation Engine checks semantic cache for similar intents
+8. Model Router selects tier-appropriate model (local/cloud)
+9. SDO Engine generates candidates using pruned candidate tree algorithm
+10. Verification Orchestra validates in WASM sandbox
+11. Reasoning Trace Service captures WHY decisions were made
+12. Proof Certificate generated for passing candidate
+13. Best verified candidate passes through Security Gateway (output validation)
+14. Result presented to user via streaming with confidence score
+15. Event sourced to IVCU history for undo/audit
+16. User can: Accept, Drill Down, Refine Intent, Export with Proof
 
 
 ================================================================================
@@ -176,10 +208,16 @@ Purpose: Primary interface for expressing user intent
 
 Features:
 • Natural language input with real-time interpretation
+• Tree-sitter powered syntax highlighting (instant feedback)
 • Structured constraint tagging
 • Intent templates for common patterns
 • Side-by-side: user input ↔ system interpretation
 • Refinement suggestions
+• gRPC streaming for live token display
+• Model Selection & Budget Controls (NEW v2.1)
+    - Per-query model overrides (Speed vs Accuracy)
+    - Live cost estimation
+    - Transparency on model capabilities
 
 State:
   IntentCanvasState {
@@ -189,7 +227,13 @@ State:
     suggested_refinements: [Refinement],
     active_constraints: [Constraint],
     is_confirmed: Bool,
+    ast_cache: TreeSitterAST?,  // NEW: Cached syntax tree
+    selected_model_config: ModelConfig?, // NEW v2.1: User override
   }
+
+Integration:
+  - Tree-sitter: <10ms incremental parsing on keystroke
+  - gRPC-Web: Bidirectional streaming for generation events
 
 
 4.1.2 REVIEW PANEL
@@ -200,9 +244,10 @@ Features:
 • Summary view (default)
 • Detail view (one click)
 • Code view (on demand)
-• Verification breakdown
+• Verification breakdown with proof certificate display
 • Counterfactual explorer ("What if I wanted X instead?")
 • Accept/Refine actions
+• Export with Proof Certificate (code + cryptographic proof)
 
 State:
   ReviewPanelState {
@@ -210,6 +255,7 @@ State:
     view_level: Enum { Summary, Detail, Code },
     verification_expanded: Bool,
     counterfactual_active: Bool,
+    proof_certificate: ProofCertificate?,  // NEW
   }
 
 
@@ -234,11 +280,12 @@ Integration:
 Purpose: System status and project health
 
 Features:
-• Active generations (with progress)
-• Recent IVCUs with status
+• Active generations (with streaming progress)
+• Recent IVCUs with status and proof status
 • Cost tracking (usage vs budget)
 • Team activity (for collaborative projects)
 • Alerts and notifications
+• Event stream viewer (audit trail)
 
 
 4.2 SEMANTIC CONTROL PLANE
@@ -249,24 +296,25 @@ Features:
 Responsibilities:
 • Parse natural language intent
 • Extract formal contracts
-• Manage IVCU lifecycle
+• Manage IVCU lifecycle (event-sourced)
 • Version control for intents
 
-API:
-  POST /intent/parse
+API (gRPC):
+  service IntentService {
+    rpc ParseIntent(ParseRequest) returns (stream ParseEvent);
+    rpc CreateIVCU(CreateRequest) returns (IVCU);
+    rpc GetIVCU(GetRequest) returns (IVCU);
+    rpc RefineIntent(RefineRequest) returns (stream RefineEvent);
+  }
+
+API (REST - external):
+  POST /api/v1/intent/parse
     Body: { raw_intent: String, project_context: UUID }
     Response: { parsed: IntentSpec, confidence: Float }
     
-  POST /intent/create
+  POST /api/v1/intent/create
     Body: { intent: IntentSpec, contracts: [Contract] }
     Response: { ivcu_id: UUID }
-    
-  GET /intent/{ivcu_id}
-    Response: { ivcu: IVCU }
-    
-  PUT /intent/{ivcu_id}/refine
-    Body: { updates: IntentUpdate }
-    Response: { ivcu: IVCU, regeneration_required: Bool }
 
 
 4.2.2 LEARNER MODEL SERVICE
@@ -294,14 +342,6 @@ Data Model:
     ArchitecturalReasoning,
   }
 
-API:
-  GET /learner/{user_id}/model
-    Response: { model: LearnerModel }
-    
-  POST /learner/{user_id}/event
-    Body: { event: LearningEvent }
-    Response: { updated_skills: Map }
-
 
 4.2.3 ECONOMIC CONTROL PLANE
 
@@ -314,20 +354,8 @@ Responsibilities:
 Components:
 • Budget Manager: Tracks spend against limits
 • Cost Oracle: Estimates operation costs
-• Model Router: Selects cost-optimal models
+• Model Router: Selects cost-optimal models from multi-tier pool
 • Quality Negotiator: Presents cost-quality options
-
-API:
-  GET /economics/{project_id}/budget
-    Response: { limit: Currency, used: Currency, remaining: Currency }
-    
-  POST /economics/estimate
-    Body: { operation: OperationSpec }
-    Response: { options: [CostOption] }
-    
-  POST /economics/approve
-    Body: { operation_id: UUID, option: CostOption }
-    Response: { approved: Bool, budget_after: Currency }
 
 
 4.2.4 SPECULATION ENGINE
@@ -335,22 +363,23 @@ API:
 Responsibilities:
 • Predict likely user intents
 • Pre-generate for predicted intents
-• Manage semantic cache
+• Manage semantic cache with similarity matching
 • Background speculation during idle
 
 Components:
 • Intent Predictor: ML model predicting next intent
-• Semantic Cache: Store generations keyed by intent embedding
+• Semantic Cache: LRU with cosine similarity (threshold 0.92)
 • Background Worker: Speculative generation pool
 
-API:
-  POST /speculation/predict
-    Body: { partial_intent: String, context: ProjectContext }
-    Response: { predictions: [PredictedIntent] }
-    
-  GET /speculation/cache/lookup
-    Query: { intent_embedding: Vector }
-    Response: { hit: Bool, generation?: Generation }
+Semantic Cache Configuration:
+  SemanticCache {
+    max_size: 1000,
+    default_ttl_seconds: 3600,
+    similarity_threshold: 0.92,
+    embedding_model: "text-embedding-3-small",
+    lru_eviction: true,
+    background_cleanup: true,
+  }
 
 
 4.2.5 ORCHESTRATION SERVICE
@@ -365,15 +394,7 @@ Workflow Engine:
 • Temporal-based durable workflows
 • Step-level retry with backoff
 • Timeout enforcement
-• Progress tracking
-
-API:
-  POST /orchestration/workflow
-    Body: { workflow_type: WorkflowType, input: WorkflowInput }
-    Response: { workflow_id: UUID }
-    
-  GET /orchestration/workflow/{id}/status
-    Response: { status: WorkflowStatus, progress: Float }
+• Progress tracking via gRPC streaming
 
 
 4.2.6 REASONING TRACE SERVICE
@@ -396,10 +417,7 @@ Data Model:
   }
 
 API:
-  GET /reasoning/{generation_id}/trace
-    Response: { trace: ReasoningTrace }
-    
-  POST /reasoning/{generation_id}/counterfactual
+  POST /api/v1/reasoning/{generation_id}/counterfactual
     Body: { question: String }
     Response: { answer: CounterfactualAnswer }
 
@@ -407,44 +425,85 @@ API:
 4.3 AI LAYER
 ------------
 
-4.3.1 MODEL ROUTER
+4.3.1 MODEL ROUTER (v2.1 - User-Centric & Multi-Provider)
 
-Responsibilities:
-• Select appropriate model for task
-• Balance cost vs quality
-• Respect org model policies
-• Track model performance
-
-Routing Logic:
-  Simple tasks (boilerplate) → Small/fast models (7-13B)
-  Medium tasks (features) → Balanced models (70B)
-  Complex tasks (architecture) → Frontier models (GPT-4/Claude class)
+Core Philosophy: Accuracy > Raw Cost
+  "Low accuracy models are expensive because verification failures trigger regeneration."
 
 Configuration:
-  ModelRoutingPolicy {
-    org_id: UUID,
-    allowed_models: [ModelID],
-    denied_models: [ModelID],
-    cost_preference: Enum { Cheapest, Balanced, BestQuality },
+  UserModelPreferences {
     default_model: ModelID,
+    budget_daily_limit: Currency,
+    auto_upgrade_enabled: Bool,  // Try better model if low-tier fails
+    task_overrides: Map<TaskType, ModelID>,
   }
 
+Model Catalog (2025-2026):
 
-4.3.2 SDO ENGINE (Speculative Decoding Orchestrator)
+  CLASS_LOCAL (Privacy + Speed):
+    • Qwen3-8B (Q4_K_M): Precision coding, multilingual (Rec: vLLM)
+    • Gemma 3 4B: Ultra-fast lightweight
+    • DeepSeek-Coder-V2 7B: Pure coding specialist
+
+  CLASS_BALANCED (Speed + Quality):
+    • DeepSeek-V3: 90% HumanEval, $0.002/1M (Rec: Default)
+    • Claude Haiku: Fast reasoning
+    • Gemini 2.0 Flash: High context
+
+  CLASS_HIGH_ACCURACY (Complex Logic):
+    • Claude Sonnet 4: 92% HumanEval, robust debugging
+    • GPT-4o: General purpose strength
+    • Gemini 2.5 Pro: Massive context (1M+)
+
+  CLASS_FRONTIER (Novel Problems):
+    • Claude Opus 4: 95% HumanEval, architectural reasoning
+
+Routing Logic (Accuracy-First):
+  1. Check User Overrides for specific TaskType
+  2. Select Default Model (DeepSeek-V3 recommended)
+  3. If Verification Fails > 2 times AND auto_upgrade_enabled:
+     -> Upgrade to next accuracy class (e.g., Balanced -> High Accuracy)
+  4. If Budget Limit Reached:
+     -> Fallback to Local/Cheaper model (warn user)
+
+Effective Cost Analysis:
+  Model A ($0.05, 50% pass) -> Real Cost $0.10 (2 runs)
+  Model B ($0.08, 90% pass) -> Real Cost $0.09 (1.1 runs) -> CHEAPER
+
+
+4.3.2 SDO ENGINE (v2.0 - Pruned Candidate Tree)
 
 Responsibilities:
-• Generate multiple candidates in parallel
-• Use draft models for initial filtering
-• Prune failed branches early
+• Generate multiple candidates using adaptive algorithm
+• Prune low-confidence branches during generation
+• Use Thompson Sampling for strategy selection
 • Present best verified candidate
 
-Algorithm:
-  1. Generate K initial candidates using draft model
-  2. Quick filter (syntax, obvious errors)
-  3. Generate refined versions using primary model
-  4. Parallel verification on all candidates
-  5. Rank by verification confidence
-  6. Return best candidate
+Algorithm (Pruned Candidate Tree):
+  1. Generate initial tokens with draft model (7B):
+      - depth: 50 tokens
+      - branches: 5
+      
+  2. Prune tree based on confidence scoring:
+      - threshold: 0.3
+      - retain: top 2 branches
+      
+  3. Extend surviving branches with primary model:
+      - inline Tier 1 verification
+      - early_stop if confidence > 0.9
+      
+  4. Final verification on surviving candidates only
+
+Adaptive Strategy (Thompson Sampling):
+  strategies:
+    - parallel: Generate all K candidates simultaneously
+    - sequential: Generate one at a time with early stopping
+    - speculative: Use draft model for filtering
+    
+  bandit:
+    algorithm: Thompson Sampling with Beta priors
+    update: On verification success/failure
+    persistence: Store arm statistics for learning
 
 Circuit Breakers:
 • Max candidates: 5
@@ -462,59 +521,152 @@ Agent Types:
     • DocGenerator: Writes documentation
     • RefactorAgent: Transforms existing code
     
+  VERIFICATION AGENTS (NEW):
+    • SpecGenerator: Generate formal specs from intent
+    • ProofAssistant: Generate proof hints for SMT solver
+    
   UTILITY AGENTS:
-    • MemoryAgent: Retrieves relevant context
+    • MemoryAgent: Retrieves relevant context via GraphRAG
     • DependencyAgent: Resolves dependencies
     • FormatAgent: Normalizes code style
 
-Agent Lifecycle:
-  1. Spawn from pool on demand
-  2. Execute task with timeout
-  3. Return to pool or terminate
 
+4.4 VERIFICATION LAYER (v2.0)
+-----------------------------
 
-4.4 VERIFICATION LAYER
-----------------------
-
-4.4.1 VERIFICATION ORCHESTRA
+4.4.1 VERIFICATION ORCHESTRA (v2.1 - Portfolio Architecture)
 
 Architecture:
-  Each verifier runs independently; results aggregate to confidence score
+  Parallel execution of specialized verifiers for maximum coverage.
+  Confidence aggregated from multi-solver consensus.
 
-Verifiers (Tier 1 - Fast, <2s):
-  • SyntaxChecker: Parse validation
-  • TypeChecker: Static type analysis
-  • Linter: Style and pattern checks
-  • ImportResolver: Dependency validation
+Verifier Portfolio Strategy:
 
-Verifiers (Tier 2 - Medium, 2-15s):
-  • TestRunner: Execute generated tests
-  • PropertyChecker: Property-based testing (limited)
-  • RegressionChecker: Compare against known good
+  TIER 0 (Instant, <10ms):
+    • TreeSitterParser: Incremental syntax/structure (WASM)
 
-Verifiers (Tier 3 - Deep, 15s-5min):
-  • SMTSolver: Bounded model checking
-  • SecurityScanner: Vulnerability analysis
-  • FuzzTester: Randomized input testing
+  TIER 1 (Fast, <2s):
+    • TypeChecker: Static analysis (TypeScript, Pyright, etc.)
+    • Linter: Style & pattern checks
+
+  TIER 2 (Dynamic, 2-15s):
+    • TestRunner: Unit/Integration tests in WASM sandbox
+    • PropertyChecker: Fast property-based tests (Hypothesis)
+
+  TIER 3 (Formal, 15s-5min) [UPGRADED]:
+    • SMT Solver Portfolio (Race Mode):
+        1. Z3: General purpose baseline
+        2. CVC5: String & Array theory specialist
+        3. Bitwuzla: Bit-vector & Floating-point specialist
+    • Semgrep: Security pattern matching
+    • FuzzTester: Coverage-guided fuzzing (LibFuzzer via WASM)
 
 Confidence Aggregation:
-  confidence = Σ(verifier_weight × verifier_result × verifier_coverage)
+  UnsatCore = Intersection(Z3, CVC5, Bitwuzla results)
+  Confidence = BaseScore + (SolverAgreementBonus * 0.2)
 
-API:
-  POST /verification/verify
-    Body: { 
-      code: String, 
-      contracts: [Contract],
-      budget: VerificationBudget 
-    }
-    Response: { 
+
+4.4.2 WASM SANDBOXED EXECUTION [NEW]
+
+Purpose: Fast, secure, and formally verified code execution
+
+Runtime:
+  WASMSandbox {
+    runtime: Wasmtime (with vWasm verification)
+    isolation: Per-candidate memory isolation
+    languages_supported: [python, javascript, go, rust]
+    
+    execution_flow:
+      1. Compile generated code to WASM
+      2. Initialize isolated memory sandbox
+      3. Execute with fuel-based timeout
+      4. Capture output/errors
+      5. Destroy sandbox
+      
+    guarantees:
+      - Memory isolation (no access to host)
+      - CPU limiting via fuel mechanism
+      - Deterministic execution
+      - Formally verified sandbox correctness
+  }
+
+Benefits:
+• 10μs startup (vs 100-500ms for Docker containers)
+• Formal verification of isolation (vWasm)
+• Reproducible across machines
+• Lower infrastructure cost
+
+
+4.4.3 PROOF-CARRYING CODE [NEW]
+
+Purpose: Code travels with cryptographic proof of verification
+
+Architecture:
+  ProofCertificate {
+    ivcu_id: UUID,
+    assertions: [FormalAssertion],
+    proof_type: Enum { TypeSafety, MemorySafety, ContractCompliance },
+    proof_data: Binary,
+    verifier_version: String,
+    hash_chain: String,  // Cryptographic binding to code
+    signature: CryptoSignature,
+    timestamp: Timestamp,
+  }
+
+  FormalAssertion {
+    property: String,  // "no null pointer dereference"
+    scope: CodeLocation,
+    proof_method: Enum { SMT, TypeSystem, Testing, Fuzzing },
+  }
+
+Verification Flow:
+  1. SDO generates code
+  2. Verification Orchestra produces proof certificate
+  3. IVCU stores both code AND proof
+  4. User can export "verified bundle" (code + proof)
+  5. External systems verify proof WITHOUT re-running tests
+
+Export Format:
+  VerifiedBundle {
+    code: String,
+    language: String,
+    proof_certificate: ProofCertificate,
+    verification_metadata: {
+      tiers_passed: [Int],
       confidence: Float,
-      breakdown: [VerifierResult],
-      known_limitations: [Limitation]
+      known_limitations: [String],
     }
+  }
 
 
-4.4.2 VERIFICATION BUDGET
+4.4.4 AI-DRIVEN FORMAL VERIFICATION [NEW]
+
+Purpose: Automatically generate formal specifications from intent
+
+SpecGenerator Agent:
+  Input: Natural language intent + contracts
+  Output: 
+    - Z3 constraints
+    - Dafny contracts
+    - ACSL annotations
+    - Loop invariants
+
+ProofAssistant Agent:
+  Purpose: Help SMT solver when stuck
+  Actions:
+    - Generate intermediate lemmas
+    - Suggest loop invariants
+    - Decompose complex proofs
+
+Workflow:
+  1. Intent: "Create a list that never exceeds 100 items"
+  2. SpecGenerator → `assert(len(list) <= 100)` + invariants
+  3. SDO generates code with embedded assertions
+  4. SMT Solver verifies with AI-generated proof hints
+  5. If stuck, ProofAssistant suggests invariants
+
+
+4.4.5 VERIFICATION BUDGET
 
 Model:
   VerificationBudget {
@@ -526,116 +678,174 @@ Model:
   }
 
 
-4.5 MEMORY LAYER
-----------------
+4.5 MEMORY LAYER (GraphRAG) [v2.0]
+----------------------------------
 
-4.5.1 THREE-TIER MEMORY
+4.5.1 UNIFIED GraphRAG ARCHITECTURE (v2.1)
 
-TIER 1: WORKING MEMORY (Session-scoped)
-• Current intent and context
-• Active conversation
-• Recent generations
-• Capacity: Fits context window (~128K tokens)
-• Storage: In-memory
+Core Philosophy: "Relational Knowledge + Semantic Vector Search"
 
-TIER 2: PROJECT MEMORY (Persistent, per-project)
-• All IVCUs
-• Architectural decisions
-• Team conventions
-• Bug history
-• Storage: PostgreSQL + Vector DB
+Components:
+  1. Vector Store: pgvectorscale (PostgreSQL Extension)
+     - Why: 28% faster than Qdrant, $0 cost (uses existing DB)
+     - Index: DiskANN (Index on Disk, compressed)
+     - Quantization: Binary (32x compression) for high-speed search
 
-TIER 3: ORGANIZATIONAL MEMORY (Persistent, cross-project)
-• Shared patterns
-• Security policies
-• Compliance requirements
-• Storage: Dedicated cluster
+  2. Graph Store: DGraph (Open Source v24)
+     - Why: Native GraphQL, distributed, 40% less RAM than Neo4j
+     - Schema: Type-safe, efficiently traverses deep relationships
+
+  3. Integration Layer (GraphRAG):
+     - Combined context retrieval
+     - "Find similar code (Vector) AND its dependencies (Graph)"
+
+Queries:
+  # Semantic + Structural combined
+  MATCH (i:Intent)-[:IMPLEMENTS]->(c:Code)
+  WHERE similarity(i.embedding, $query) > 0.8  # pgvectorscale
+  MATCH (c)-[:DEPENDS_ON*1..3]->(deps:Code)   # DGraph
+  RETURN c, deps
+
+4.5.2 THREE-TIER MEMORY
+   [Unchanged from v2.0]
+
+4.5.3 VECTOR STORE CONFIGURATION (pgvectorscale) [NEW]
+
+Configuration:
+  pgvectorscale_config {
+    index_type: "diskann",
+    storage_layout: "plain",
+    num_bits_per_dimension: 1,  # Binary quantization
+    search_list_size: 100,      # High recall
+    preprocessing: "z-score normalization",
+  }
+  
+  Embedding Models (Cost-Optimized):
+  • Primary: Gemini embedding-001 ($0.004/1M) - 80% savings
+  • Reranker: VoyageAI 3.5-lite ($0.02) for high precision
+
+4.5.4 MEMORY SERVICE (v2.1)
+   [API remains consistent, backend implementation changes]
 
 
-4.5.2 MEMORY SERVICE
-
-Responsibilities:
-• Store and retrieve context
-• Semantic search over memory
-• Graph traversal for relationships
-• Context window optimization
-
-API:
-  POST /memory/store
-    Body: { node: MemoryNode }
-    Response: { node_id: UUID }
-    
-  POST /memory/search
-    Body: { query: String, max_results: Int, filters: MemoryFilter }
-    Response: { nodes: [MemoryNode], relevance_scores: [Float] }
-    
-  GET /memory/related/{node_id}
-    Query: { depth: Int }
-    Response: { nodes: [MemoryNode], relations: [Relation] }
-
-
-4.6 INFRASTRUCTURE LAYER
-------------------------
+4.6 INFRASTRUCTURE LAYER (v2.0)
+-------------------------------
 
 4.6.1 COMPUTE
 
 Development:
-• Single node with GPU for local LLM
+• Single node with GPU for local LLM inference
 • Docker Compose for services
+• Local model support (Ollama/LM Studio)
 
 Production:
 • Kubernetes cluster
 • GPU nodes for inference
 • CPU nodes for services
+• WASM workers for verification
 • Autoscaling based on queue depth
 
 
 4.6.2 STORAGE
 
-PostgreSQL:
-• IVCUs, users, projects, budgets
+PostgreSQL 16:
+• IVCUs (current state projection)
+• Event Store (immutable event log)
+• Users, projects, budgets
 • Transactional data
 
 Qdrant (Vector DB):
-• Memory embeddings
+• Memory embeddings (HNSW indexed)
 • Semantic search
+• Quantized storage for cost efficiency
 
-Neo4j (Graph DB):
+Neo4j 5 (Graph DB):
 • Memory relationships
 • Architecture dependencies
+• Unified with Qdrant via GraphRAG layer
 
-Redis:
+Redis 7:
 • Session state
 • Caching
 • Rate limiting
 
 
-4.6.3 MESSAGE QUEUE
+4.6.3 EVENT SOURCING [NEW]
 
-NATS:
-• Internal service communication
-• Event streaming
-• Pub/sub for notifications
+Purpose: Complete history as immutable event stream
+
+IVCU Event Store:
+  storage: Append-only PostgreSQL (no UPDATEs)
+  
+  events:
+    - IntentCreated { raw_intent, parsed_intent, user_id, timestamp }
+    - ContractAdded { contract, source: "user" | "inferred" }
+    - CandidateGenerated { code, model_id, confidence }
+    - VerificationCompleted { results, tier, passed }
+    - CandidateSelected { candidate_id, reason }
+    - IntentRefined { delta, triggered_regeneration }
+    - ProofGenerated { certificate_id, assertions }
+    - IVCUDeployed { environment, commit_hash }
+    
+  projections:
+    - CurrentState: Latest IVCU state (for fast reads)
+    - AuditLog: Human-readable change history
+    - CostLedger: Token/cost accumulation over time
+    
+  queries:
+    - state_at(ivcu_id, timestamp): IVCU at point in time
+    - events_between(ivcu_id, t1, t2): Changes in range
+    - undo(ivcu_id): Compute inverse event
 
 
-4.6.4 OBSERVABILITY
+4.6.4 MESSAGE STREAMING (NATS JetStream) [UPGRADED]
 
-Metrics (Prometheus):
-• Request latency
+Configuration:
+  NATS JetStream:
+    features:
+      - Message persistence
+      - At-least-once delivery
+      - Consumer groups
+      - Replay from any point
+      
+    streams:
+      GENERATIONS:
+        subjects: [generation.*, verification.*]
+        retention: 7 days
+        replicas: 3
+        
+      AUDIT:
+        subjects: [audit.*]
+        retention: unlimited
+        storage: file
+        
+      METRICS:
+        subjects: [metrics.*]
+        retention: 24 hours
+        max_msgs: 1M
+
+
+4.6.5 OBSERVABILITY
+
+Metrics (Prometheus + Grafana):
+• Request latency (p50, p95, p99)
 • Generation success rate
-• Verification pass rate
+• Verification pass rate by tier
 • Cost per operation
+• WASM sandbox execution times
 
 Logs (Loki):
 • Structured JSON logs
 • Trace correlation
+• Event stream integration
 
 Traces (Tempo):
 • Distributed tracing
 • Cross-service correlation
+• gRPC streaming traces
 
 
-4.6.5 SECURITY CONTEXTS
+4.6.6 SECURITY CONTEXTS
 
 Four isolation levels:
 
@@ -645,23 +855,24 @@ PUBLIC:
 • General development
 
 CONFIDENTIAL:
-• Restricted model list
+• Restricted model list (local preferred)
 • No output caching
 • Enhanced logging
 
 REGULATED:
 • Certified models only
-• Complete audit trail
+• Complete audit trail (event sourced)
 • Approval workflows
+• Proof certificates required
 
 SOVEREIGN:
-• Self-hosted only
+• Self-hosted only (local models)
 • No external network
 • Customer-managed keys
 
 
 ================================================================================
-5. DATA MODELS & SCHEMAS
+5. DATA MODELS & SCHEMAS (v2.0)
 ================================================================================
 
 5.1 CORE ENTITIES
@@ -712,6 +923,9 @@ IVCU {
   verification_result: JSONB
   confidence_score: Float
   
+  -- Proof Certificate (NEW)
+  proof_certificate: JSONB
+  
   -- Implementation
   code: Text
   language: String
@@ -728,6 +942,37 @@ IVCU {
   created_at: Timestamp
   created_by: UUID (FK → User)
   parent_ids: UUID[]
+  
+  -- Event sourcing reference (NEW)
+  event_sequence: Int (Latest event number)
+}
+```
+
+IVCU_EVENT (NEW):
+```
+IVCUEvent {
+  id: UUID (PK)
+  ivcu_id: UUID (FK → IVCU)
+  sequence_number: Int
+  event_type: String
+  event_data: JSONB
+  timestamp: Timestamp
+  actor_id: UUID (FK → User)
+}
+```
+
+PROOF_CERTIFICATE (NEW):
+```
+ProofCertificate {
+  id: UUID (PK)
+  ivcu_id: UUID (FK → IVCU)
+  proof_type: ProofType
+  assertions: JSONB
+  proof_data: Binary
+  verifier_version: String
+  hash_chain: String
+  signature: Binary
+  created_at: Timestamp
 }
 ```
 
@@ -774,6 +1019,7 @@ GenerationLog {
   id: UUID (PK)
   ivcu_id: UUID (FK → IVCU)
   model_id: String
+  model_tier: ModelTier  (NEW)
   tokens_in: Int
   tokens_out: Int
   latency_ms: Int
@@ -820,30 +1066,73 @@ MemoryNodeType = Enum {
   Convention,
   BugFix
 }
+
+ModelTier = Enum {  (NEW)
+  Local,
+  CloudFast,
+  CloudCapable,
+  CloudFrontier
+}
+
+ProofType = Enum {  (NEW)
+  TypeSafety,
+  MemorySafety,
+  ContractCompliance,
+  PropertyBased
+}
 ```
 
 
 ================================================================================
-6. API SPECIFICATIONS
+6. API SPECIFICATIONS (v2.0)
 ================================================================================
 
-6.1 REST API OVERVIEW
----------------------
+6.1 DUAL PROTOCOL ARCHITECTURE [NEW]
+------------------------------------
+
+External API: REST /api/v1 (client compatibility)
+Internal API: gRPC (service-to-service, low latency)
+Streaming API: gRPC-Web (frontend real-time)
+
+
+6.2 gRPC SERVICE DEFINITIONS [NEW]
+----------------------------------
+
+```protobuf
+service GenerationService {
+  // Bidirectional streaming for generation
+  rpc GenerateStream(stream IntentUpdate) 
+      returns (stream GenerationEvent);
+  
+  // Server streaming for verification
+  rpc VerifyStream(VerifyRequest) 
+      returns (stream VerificationProgress);
+}
+
+message GenerationEvent {
+  oneof event {
+    TokenGenerated token = 1;
+    CandidatePruned pruned = 2;
+    VerificationResult result = 3;
+    CostUpdate cost = 4;
+    ProofGenerated proof = 5;
+  }
+}
+
+service MemoryService {
+  rpc Store(StoreRequest) returns (NodeID);
+  rpc SemanticSearch(SearchRequest) returns (stream MemoryNode);
+  rpc ImpactAnalysis(ImpactRequest) returns (ImpactGraph);
+}
+```
+
+
+6.3 REST ENDPOINT SUMMARY
+-------------------------
 
 Base URL: /api/v1
-
 Authentication: Bearer token (JWT)
-
 Rate Limiting: Per-user, per-endpoint
-
-Common Headers:
-  Authorization: Bearer <token>
-  Content-Type: application/json
-  X-Request-ID: <uuid>
-
-
-6.2 ENDPOINT SUMMARY
---------------------
 
 INTENT ENDPOINTS:
   POST   /intent/parse           Parse raw intent
@@ -857,50 +1146,43 @@ GENERATION ENDPOINTS:
   POST   /generation/start       Start generation workflow
   GET    /generation/{id}/status Get generation status
   POST   /generation/{id}/cancel Cancel generation
+  GET    /generation/{id}/proof  Get proof certificate (NEW)
 
 VERIFICATION ENDPOINTS:
   POST   /verification/verify    Verify code against contracts
   GET    /verification/{id}      Get verification result
+  GET    /verification/{id}/proof Export proof certificate (NEW)
 
 MEMORY ENDPOINTS:
   POST   /memory/store           Store memory node
   POST   /memory/search          Semantic search
   GET    /memory/{id}            Get memory node
   GET    /memory/related/{id}    Get related nodes
+  POST   /memory/impact/{id}     Analyze change impact (NEW)
 
-ECONOMICS ENDPOINTS:
-  GET    /economics/budget       Get current budget
-  POST   /economics/estimate     Estimate operation cost
-  GET    /economics/usage        Get usage history
-
-USER ENDPOINTS:
-  GET    /user/me                Get current user
-  GET    /user/me/learner        Get learner model
-  PUT    /user/me/settings       Update settings
-
-PROJECT ENDPOINTS:
-  POST   /project                Create project
-  GET    /project/{id}           Get project
-  PUT    /project/{id}           Update project
-  GET    /project/{id}/team      Get team members
+HISTORY ENDPOINTS (NEW):
+  GET    /history/{ivcu_id}              Get event history
+  GET    /history/{ivcu_id}/at/{ts}      Get state at timestamp
+  POST   /history/{ivcu_id}/undo         Undo last operation
+  POST   /history/{ivcu_id}/redo         Redo last undone operation
 
 
-6.3 WEBSOCKET API
+6.4 WEBSOCKET API
 -----------------
 
 Endpoint: /ws/v1
 
 Events:
   generation.started     { generation_id, ivcu_id }
-  generation.progress    { generation_id, progress, stage }
-  generation.completed   { generation_id, ivcu }
+  generation.progress    { generation_id, progress, stage, tokens[] }
+  generation.completed   { generation_id, ivcu, proof_certificate }
   generation.failed      { generation_id, error }
-  verification.progress  { verification_id, verifier, result }
-  verification.completed { verification_id, confidence }
+  verification.progress  { verification_id, verifier, result, tier }
+  verification.completed { verification_id, confidence, proof }
 
 
 ================================================================================
-7. TECHNOLOGY STACK
+7. TECHNOLOGY STACK (v2.0)
 ================================================================================
 
 7.1 FRONTEND
@@ -911,13 +1193,15 @@ Language: TypeScript 5
 State: Zustand
 Styling: Tailwind CSS + Radix UI
 Editor: Monaco (for code view)
-Real-time: Socket.io client
+Real-time: gRPC-Web + Socket.io client
+Syntax: Tree-sitter WASM bindings
 
 Key Libraries:
 • react-query: Server state management
 • framer-motion: Animations
 • d3: Visualization (for graphs)
 • zod: Schema validation
+• web-tree-sitter: Incremental parsing (NEW)
 
 
 7.2 BACKEND
@@ -931,15 +1215,16 @@ ORM: GORM
 Key Libraries:
 • go-redis: Redis client
 • pgx: PostgreSQL driver
-• nats.go: NATS client
+• nats.go: NATS JetStream client
 • opentelemetry-go: Observability
+• grpc-go: gRPC server (NEW)
 
 
 7.3 AI SERVICES
 ---------------
 
 Language: Python 3.12
-Framework: FastAPI
+Framework: FastAPI + grpcio
 ML: PyTorch, Transformers
 
 Key Libraries:
@@ -947,9 +1232,24 @@ Key Libraries:
 • qdrant-client: Vector operations
 • z3-solver: SMT solving
 • openai/anthropic: Model APIs
+• tree-sitter: Incremental parsing (NEW)
+• ollama: Local model integration (NEW)
 
 
-7.4 INFRASTRUCTURE
+7.4 VERIFICATION SERVICES
+-------------------------
+
+Language: Rust (primary), Python (AI-driven)
+Runtime: Wasmtime (WASM sandbox)
+Protocol: gRPC
+
+Key Libraries:
+• wasmtime: WASM runtime
+• tree-sitter: Fast parsing
+• tonic: gRPC in Rust
+
+
+7.5 INFRASTRUCTURE
 ------------------
 
 Container: Docker
@@ -958,10 +1258,13 @@ CI/CD: GitHub Actions
 IaC: Terraform
 
 Databases:
-• PostgreSQL 16
-• Qdrant (vector)
-• Neo4j 5 (graph)
-• Redis 7
+• PostgreSQL 16 (with event sourcing schema)
+• Qdrant (vector, HNSW indexed)
+• Neo4j 5 (graph, unified via GraphRAG)
+• Redis 7 (caching)
+
+Messaging:
+• NATS JetStream (persistent event streaming)
 
 Observability:
 • Prometheus + Grafana
@@ -974,69 +1277,98 @@ Security:
 
 
 ================================================================================
-8. IMPLEMENTATION ROADMAP
+8. IMPLEMENTATION ROADMAP (v2.0)
 ================================================================================
 
-8.1 PHASE 1: FOUNDATION (Weeks 1-8)
------------------------------------
+8.1 PHASE 1: FOUNDATION (Weeks 1-8) [COMPLETE]
+----------------------------------------------
 
 Goal: Minimal viable loop (Intent → Generate → Verify → Review)
 
 Deliverables:
-• [ ] Project scaffolding (monorepo structure)
-• [ ] Database schema and migrations
-• [ ] Basic Auth (JWT)
-• [ ] Intent Service (parse, create, get)
-• [ ] Generation Service (single model, no SDO)
-• [ ] Verification Service (Tier 1 only: syntax, types, lint)
-• [ ] Simple Frontend (Intent Canvas, basic Review)
-• [ ] Local development environment
+• [x] Project scaffolding (monorepo structure)
+• [x] Database schema and migrations
+• [x] Basic Auth (JWT)
+• [x] Intent Service (parse, create, get)
+• [x] Generation Service (single model, no SDO)
+• [x] Verification Service (Tier 1 only: syntax, types, lint)
+• [x] Simple Frontend (Intent Canvas, basic Review)
+• [x] Local development environment
 
 
-8.2 PHASE 2: CORE LOOP (Weeks 9-16)
------------------------------------
+8.2 PHASE 2: CORE LOOP (Weeks 9-16) [COMPLETE]
+----------------------------------------------
 
 Goal: Production-ready single-user experience
 
 Deliverables:
-• [ ] SDO Engine (parallel candidates, pruning)
-• [ ] Verification Orchestra (Tier 1 + Tier 2)
-• [ ] Memory Layer (project memory)
-• [ ] Economic Control Plane (budgets, cost tracking)
-• [ ] Confidence scoring and display
-• [ ] Undo/rollback functionality
-• [ ] Consequence preview
-• [ ] Basic API security
+• [x] SDO Engine (parallel candidates, pruning)
+• [x] Verification Orchestra (Tier 1 + Tier 2)
+• [x] Memory Layer (project memory with Qdrant)
+• [x] Economic Control Plane (budgets, cost tracking)
+• [x] Confidence scoring and display
+• [x] Undo/rollback functionality
+• [x] Consequence preview
+• [x] Basic API security
+• [x] Rust verifier with gRPC (performance optimization)
 
 
-8.3 PHASE 3: INTELLIGENCE (Weeks 17-24)
----------------------------------------
+8.3 PHASE 3: INTELLIGENCE (Weeks 17-24) [IN PROGRESS]
+------------------------------------------------------
 
 Goal: Smart, adaptive experience
 
 Deliverables:
+• [x] Semantic Cache with similarity matching
+• [x] Multi-LLM Routing with policy engine
+• [x] Thompson Sampling for strategy selection
+• [x] Reasoning Trace Service
 • [ ] Learner Model Service
 • [ ] Adaptive UI scaffolding
-• [ ] Speculation Engine
-• [ ] Reasoning Trace Service
 • [ ] Counterfactual Explorer
 • [ ] Deep verification (Tier 3)
-• [ ] Model routing (multiple models)
 
 
-8.4 PHASE 4: SCALE (Weeks 25-32)
+8.4 PHASE 4: ARCHITECTURE v2.0 [NEW]
+------------------------------------
+
+Goal: Next-generation architecture improvements
+
+Deliverables:
+• [ ] gRPC streaming (2-3 weeks)
+• [ ] Tree-sitter incremental parsing (2-3 weeks)
+• [ ] WASM sandboxed execution (3-4 weeks)
+• [ ] GraphRAG unified memory (3-4 weeks)
+• [ ] Event sourcing for IVCUs (3-4 weeks)
+• [ ] Multi-tier model inference (2-3 weeks)
+• [ ] NATS JetStream upgrade (1 week)
+
+
+8.5 PHASE 5: TRUST (Weeks 25-32)
 --------------------------------
+
+Goal: Proof-carrying, enterprise-ready
+
+Deliverables:
+• [ ] Proof-Carrying Code architecture (6-8 weeks)
+• [ ] AI-driven formal verification (4-6 weeks)
+• [ ] Export verified bundles
+• [ ] Third-party proof verification
+
+
+8.6 PHASE 6: SCALE
+------------------
 
 Goal: Multi-user, enterprise-ready
 
 Deliverables:
 • [ ] Team collaboration features
 • [ ] Organization memory
-• [ ] Security contexts
+• [ ] Security contexts (all levels)
 • [ ] AI Security Gateway
 • [ ] Provenance chain
 • [ ] Kubernetes deployment
-• [ ] Observability stack
+• [ ] Full observability stack
 • [ ] Performance optimization
 
 
@@ -1073,10 +1405,11 @@ Output Validation:
 • Credential pattern detection
 • PII scanning
 • Schema validation
+• WASM sandbox isolation (NEW)
 
 Audit:
-• All AI interactions logged
-• Immutable audit trail
+• All AI interactions logged (event sourced)
+• Immutable audit trail (JetStream)
 • Anomaly detection
 
 
@@ -1087,67 +1420,72 @@ Encryption:
 • At rest: AES-256
 • In transit: TLS 1.3
 • Secrets: Vault-managed
+• Proof certificates: Cryptographically signed (NEW)
 
 Data Isolation:
 • Project-level isolation
 • Tenant separation in multi-tenant
 • Row-level security
+• WASM memory isolation (NEW)
 
 
 ================================================================================
 10. ECONOMIC MODEL
 ================================================================================
 
-10.1 COST DRIVERS
+10.1 COST DRIVERS (v2.1 Optimization)
 -----------------
 
-| Component          | Cost Metric              | Estimated Cost     |
-|--------------------|--------------------------|--------------------
-| LLM Inference      | Tokens (in + out)        | $0.01-0.10 per 1K  |
-| Verification       | Compute time             | $0.001 per second  |
-| Vector Storage     | GB stored + queries      | $0.10 per GB/month |
-| Graph Storage      | Nodes + queries          | $0.05 per 1K nodes |
-| Compute            | vCPU hours               | $0.05 per hour     |
+| Component          | Cost Metric              | Old Cost (v2.0)    | New Cost (v2.1)    |
+|--------------------|--------------------------|--------------------|--------------------|
+| LLM Inference      | Tokens (in + out)        | $0.10+ / 1K        | **$0.002 / 1K**    |
+|   - Local tier     | Hardware only            | $0                 | $0 (Qwen/Gemma)    |
+|   - Fast tier      | API pricing              | $0.0025            | $0.001 (DeepSeek)  |
+| Verification       | Compute time             | $0.001/sec         | $0.001/sec         |
+| Vector Storage     | GB stored                | $0.10/GB (Qdrant)  | **$0 (PostgreSQL)**|
+| Graph Storage      | Nodes + queries          | $0.05/1K (Neo4j)   | **$0 (DGraph OSS)**|
+| Embeddings         | 1M tokens                | $0.02 (OpenAI)     | **$0.004 (Gemini)**|
 
 
 10.2 PRICING TIERS
 ------------------
 
 FREE:
-• 100 IVCUs/month
-• Basic verification
-• Community support
+• Unlimited Local IVCUs
+• Basic cloud access (Gemini Flash)
 • Single project
+• Local Verification (WASM)
 
-PRO ($29/user/month):
-• Unlimited IVCUs
-• Full verification
+PRO ($19/user/month) [Reduced from $29]:
+• Unlimited Cloud IVCUs (DeepSeek-V3)
+• Full Verification Portfolio
 • Priority support
 • 10 projects
-• Team features (3 users)
+• Proof Certificates
 
-TEAM ($79/user/month):
+TEAM ($49/user/month) [Reduced from $79]:
 • Everything in Pro
-• Org memory
-• Advanced security
-• Unlimited projects
+• Org Memory (DGraph + pgvectorscale)
+• Collaborative Editing
+• Unlimited history
 • SSO
 
 ENTERPRISE (Custom):
-• Everything in Team
-• Self-hosting option
-• Dedicated support
+• Self-hosted option (Local LLM + DBs)
+• Dedicated cluster
 • SLA
-• Custom integrations
+• Custom security contexts
 
 
 ================================================================================
-                         END OF COMPREHENSIVE ARCHITECTURE
+                         END OF COMPREHENSIVE ARCHITECTURE v2.0
 ================================================================================
 
 DOCUMENT MANIFEST:
 
 This document synthesizes and supersedes:
+• v1.0 Comprehensive Architecture (2026-01-19)
+• Architecture Improvements Research (2026-01-25)
 • Prior research documents (Precision Authoring, Meta-Analysis, etc.)
 • Economic Viability Analysis
 • UI Interaction Paradigm Research
@@ -1156,6 +1494,18 @@ This document synthesizes and supersedes:
 • Architectural Improvements Research
 
 All necessary context for Antigravity implementation is contained herein.
+
+CHANGELOG v1.0 → v2.0:
+• Added WASM-based verification sandbox (100x faster execution)
+• Added gRPC streaming (2-4x latency improvement)
+• Added Tree-sitter incremental parsing (Tier 0 verification, <10ms)
+• Added Proof-Carrying Code architecture (trust model)
+• Unified Memory Layer to GraphRAG (impact analysis capability)
+• Added Event Sourcing for IVCUs (perfect undo, audit trail)
+• Enhanced SDO with pruned candidate trees (30-50% token reduction)
+• Added multi-tier model inference (local + cloud)
+• Upgraded NATS to JetStream (event persistence)
+• Added AI-driven formal verification (automated proofs)
 
 
 ================================================================================

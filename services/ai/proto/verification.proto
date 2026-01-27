@@ -1,0 +1,192 @@
+syntax = "proto3";
+
+package axiom.verification.v1;
+
+option go_package = "github.com/axiom/api/gen/verification/v1";
+
+// =============================================================================
+// VERIFICATION SERVICE
+// Real-time verification with streaming progress updates
+// =============================================================================
+
+service VerificationService {
+  // Stream verification progress for a candidate
+  rpc VerifyStream(VerifyRequest) returns (stream VerificationEvent);
+  
+  // Batch verify multiple candidates
+  rpc VerifyBatch(VerifyBatchRequest) returns (stream VerificationEvent);
+  
+  // Quick Tier 0 only verification (synchronous, <10ms)
+  rpc QuickVerify(QuickVerifyRequest) returns (QuickVerifyResponse);
+  
+  // Get verification result
+  rpc GetResult(GetResultRequest) returns (GetResultResponse);
+}
+
+// =============================================================================
+// MESSAGES
+// =============================================================================
+
+message VerifyRequest {
+  string ivcu_id = 1;
+  string candidate_id = 2;
+  string code = 3;
+  string language = 4;
+  repeated Contract contracts = 5;
+  VerificationOptions options = 6;
+}
+
+message Contract {
+  string type = 1;
+  string expression = 2;
+  string description = 3;
+}
+
+message VerificationOptions {
+  bool run_tier0 = 1;
+  bool run_tier1 = 2;
+  bool run_tier2 = 3;
+  bool run_tier3 = 4;
+  int32 timeout_seconds = 5;
+  bool fail_fast = 6;
+}
+
+message VerifyBatchRequest {
+  string ivcu_id = 1;
+  repeated CandidateCode candidates = 2;
+  string language = 3;
+  repeated Contract contracts = 4;
+  VerificationOptions options = 5;
+}
+
+message CandidateCode {
+  string candidate_id = 1;
+  string code = 2;
+}
+
+// Streaming verification event
+message VerificationEvent {
+  string ivcu_id = 1;
+  string candidate_id = 2;
+  int64 timestamp = 3;
+  
+  oneof event {
+    TierStarted tier_started = 4;
+    TierProgress tier_progress = 5;
+    TierComplete tier_complete = 6;
+    VerificationComplete complete = 7;
+    VerificationError error = 8;
+  }
+}
+
+message TierStarted {
+  string tier = 1;
+  string description = 2;
+  int32 verifier_count = 3;
+}
+
+message TierProgress {
+  string tier = 1;
+  string verifier = 2;
+  string status = 3;
+  float progress_percent = 4;
+}
+
+message TierComplete {
+  string tier = 1;
+  bool passed = 2;
+  float confidence = 3;
+  float execution_time_ms = 4;
+  repeated VerifierResult results = 5;
+}
+
+message VerifierResult {
+  string verifier = 1;
+  bool passed = 2;
+  float confidence = 3;
+  repeated string errors = 4;
+  repeated string warnings = 5;
+  map<string, string> details = 6;
+}
+
+message VerificationComplete {
+  string candidate_id = 1;
+  bool passed = 2;
+  float confidence = 3;
+  float total_time_ms = 4;
+  TierSummary tier0 = 5;
+  TierSummary tier1 = 6;
+  TierSummary tier2 = 7;
+  TierSummary tier3 = 8;
+}
+
+message TierSummary {
+  bool ran = 1;
+  bool passed = 2;
+  float confidence = 3;
+  int32 error_count = 4;
+  int32 warning_count = 5;
+}
+
+message VerificationError {
+  string error_code = 1;
+  string message = 2;
+  string tier = 3;
+  string verifier = 4;
+}
+
+// Quick verify (Tier 0 only)
+message QuickVerifyRequest {
+  string code = 1;
+  string language = 2;
+}
+
+message QuickVerifyResponse {
+  bool passed = 1;
+  float confidence = 2;
+  float parse_time_ms = 3;
+  repeated SyntaxError errors = 4;
+  ASTInfo ast_info = 5;
+}
+
+message SyntaxError {
+  int32 line = 1;
+  int32 column = 2;
+  int32 end_line = 3;
+  int32 end_column = 4;
+  string message = 5;
+  string severity = 6;
+}
+
+message ASTInfo {
+  string root_type = 1;
+  int32 node_count = 2;
+  repeated FunctionInfo functions = 3;
+  repeated ClassInfo classes = 4;
+  repeated string imports = 5;
+}
+
+message FunctionInfo {
+  string name = 1;
+  int32 start_line = 2;
+  int32 end_line = 3;
+}
+
+message ClassInfo {
+  string name = 1;
+  int32 start_line = 2;
+  int32 end_line = 3;
+}
+
+// Get result
+message GetResultRequest {
+  string ivcu_id = 1;
+  string candidate_id = 2;
+}
+
+message GetResultResponse {
+  string ivcu_id = 1;
+  string candidate_id = 2;
+  VerificationComplete result = 3;
+  bool found = 4;
+}

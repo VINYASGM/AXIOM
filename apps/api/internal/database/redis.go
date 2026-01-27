@@ -33,6 +33,11 @@ func (r *Redis) Client() *redis.Client {
 	return r.client
 }
 
+// Ping checks the Redis connection
+func (r *Redis) Ping(ctx context.Context) error {
+	return r.client.Ping(ctx).Err()
+}
+
 // Close closes the Redis connection
 func (r *Redis) Close() error {
 	return r.client.Close()

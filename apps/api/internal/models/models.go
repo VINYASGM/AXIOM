@@ -136,3 +136,19 @@ type GenerationLog struct {
 	Cost      float64   `json:"cost"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// UserSkill represents a user's proficiency in a specific skill
+type UserSkill struct {
+	UserID       uuid.UUID `json:"user_id"`
+	Skill        string    `json:"skill"`
+	Proficiency  int       `json:"proficiency"` // 1-10
+	LastUpdated  time.Time `json:"last_updated"`
+}
+
+// LearnerProfile aggregates user skills
+type LearnerProfile struct {
+	UserID      uuid.UUID            `json:"user_id"`
+	GlobalLevel string               `json:"global_level"` // novice, intermediate, expert
+	Skills      map[string]int       `json:"skills"`
+	LastUpdated time.Time            `json:"last_updated"`
+}

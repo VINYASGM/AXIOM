@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -13,13 +15,14 @@ import (
 
 // VerificationHandler handles verification endpoints
 type VerificationHandler struct {
-	db     *database.Postgres
-	logger *zap.Logger
+	db           *database.Postgres
+	aiServiceURL string
+	logger       *zap.Logger
 }
 
 // NewVerificationHandler creates a new verification handler
-func NewVerificationHandler(db *database.Postgres, logger *zap.Logger) *VerificationHandler {
-	return &VerificationHandler{db: db, logger: logger}
+func NewVerificationHandler(db *database.Postgres, aiServiceURL string, logger *zap.Logger) *VerificationHandler {
+	return &VerificationHandler{db: db, aiServiceURL: aiServiceURL, logger: logger}
 }
 
 // VerifyRequest is the request body for verification
@@ -30,11 +33,11 @@ type VerifyRequest struct {
 
 // VerifyResponse is the response for verification
 type VerifyResponse struct {
-	VerificationID  uuid.UUID               `json:"verification_id"`
-	Passed          bool                    `json:"passed"`
-	Confidence      float64                 `json:"confidence"`
-	VerifierResults []models.VerifierResult `json:"verifier_results"`
-	Limitations     []string                `json:"limitations"`
+	VerificationID  uuid.UUID                `json:"verification_id"`
+	Passed          bool                     `json:"passed"`
+	Confidence      float64                  `json:"confidence"`
+	VerifierResults []map[string]interface{} `json:"verifier_results"`
+	Limitations     []string                 `json:"limitations"`
 }
 
 // Verify runs verification on code
@@ -47,38 +50,54 @@ func (h *VerificationHandler) Verify(c *gin.Context) {
 
 	startTime := time.Now()
 
-	// Run Tier 1 verifiers (fast, <2s)
-	results := []models.VerifierResult{
-		h.runSyntaxChecker(req.Code),
-		h.runTypeChecker(req.Code),
-		h.runLinter(req.Code),
+	// Call AI Service
+	aiReq := map[string]interface{}{
+		"code":      req.Code,
+		"language":  "python", // Defaulting to python for now, ideally should come from IVCU
+		"run_tier2": true,
+	}
+	jsonBody, _ := json.Marshal(aiReq)
+
+	resp, err := http.Post(h.aiServiceURL+"/verify", "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		h.logger.Error("failed to call AI service for verification", zap.Error(err))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "AI service verification failed"})
+		return
 	}
 
-	// Calculate overall confidence
-	totalConfidence := 0.0
-	allPassed := true
-	for _, r := range results {
-		totalConfidence += r.Confidence
-		if !r.Passed {
-			allPassed = false
-		}
+	var aiResult struct {
+		Passed          bool                     `json:"passed"`
+		Confidence      float64                  `json:"confidence"`
+		VerifierResults []map[string]interface{} `json:"verifier_results"`
 	}
-	avgConfidence := totalConfidence / float64(len(results))
+	if err := json.NewDecoder(resp.Body).Decode(&aiResult); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode AI response"})
+		return
+	}
 
 	duration := time.Since(startTime)
 
 	// Update IVCU with verification result
 	newStatus := models.IVCUStatusVerified
-	if !allPassed {
+	if !aiResult.Passed {
 		newStatus = models.IVCUStatusFailed
 	}
 
+	// Store verification result details as JSONB
+	resultsJSON, _ := json.Marshal(aiResult.VerifierResults)
+
 	query := `
 		UPDATE ivcus 
-		SET status = $1, confidence_score = $2, updated_at = NOW()
-		WHERE id = $3
+		SET status = $1, confidence_score = $2, verification_result = $3, updated_at = NOW()
+		WHERE id = $4
 	`
-	_, err := h.db.Pool().Exec(c.Request.Context(), query, newStatus, avgConfidence, req.IVCUID)
+	_, err = h.db.Pool().Exec(c.Request.Context(), query, newStatus, aiResult.Confidence, resultsJSON, req.IVCUID)
 	if err != nil {
 		h.logger.Error("failed to update verification result", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store verification result"})
@@ -87,78 +106,20 @@ func (h *VerificationHandler) Verify(c *gin.Context) {
 
 	response := VerifyResponse{
 		VerificationID:  uuid.New(),
-		Passed:          allPassed,
-		Confidence:      avgConfidence,
-		VerifierResults: results,
-		Limitations: []string{
-			"Only Tier 1 verifiers run (syntax, types, lint)",
-			"Deep verification (SMT, fuzz) not yet implemented",
-		},
+		Passed:          aiResult.Passed,
+		Confidence:      aiResult.Confidence,
+		VerifierResults: aiResult.VerifierResults,
+		Limitations:     []string{},
 	}
 
 	h.logger.Info("verification completed",
 		zap.String("ivcu_id", req.IVCUID.String()),
-		zap.Bool("passed", allPassed),
-		zap.Float64("confidence", avgConfidence),
+		zap.Bool("passed", aiResult.Passed),
+		zap.Float64("confidence", aiResult.Confidence),
 		zap.Duration("duration", duration),
 	)
 
 	c.JSON(http.StatusOK, response)
-}
-
-// runSyntaxChecker performs basic syntax validation
-func (h *VerificationHandler) runSyntaxChecker(code string) models.VerifierResult {
-	start := time.Now()
-
-	// Simple syntax check - in production would use language-specific parsers
-	passed := len(code) > 0 && code[len(code)-1] != '{'
-
-	return models.VerifierResult{
-		Name:       "syntax_checker",
-		Tier:       1,
-		Passed:     passed,
-		Confidence: 0.95,
-		Messages:   []string{},
-		Duration:   time.Since(start).Milliseconds(),
-	}
-}
-
-// runTypeChecker performs type analysis
-func (h *VerificationHandler) runTypeChecker(code string) models.VerifierResult {
-	start := time.Now()
-
-	// Placeholder - in production would use type inference
-	return models.VerifierResult{
-		Name:       "type_checker",
-		Tier:       1,
-		Passed:     true,
-		Confidence: 0.80,
-		Messages:   []string{"Type checking passed (placeholder)"},
-		Duration:   time.Since(start).Milliseconds(),
-	}
-}
-
-// runLinter performs style and pattern checks
-func (h *VerificationHandler) runLinter(code string) models.VerifierResult {
-	start := time.Now()
-
-	messages := []string{}
-	confidence := 1.0
-
-	// Basic checks
-	if len(code) > 1000 {
-		messages = append(messages, "Consider breaking into smaller functions")
-		confidence -= 0.1
-	}
-
-	return models.VerifierResult{
-		Name:       "linter",
-		Tier:       1,
-		Passed:     true,
-		Confidence: confidence,
-		Messages:   messages,
-		Duration:   time.Since(start).Milliseconds(),
-	}
 }
 
 // GetResult retrieves a verification result
@@ -185,10 +146,16 @@ func (h *VerificationHandler) GetResult(c *gin.Context) {
 		return
 	}
 
+	var verifierResults []map[string]interface{}
+	if len(verificationJSON) > 0 {
+		json.Unmarshal(verificationJSON, &verifierResults)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"ivcu_id":    ivcuID,
-		"status":     status,
-		"confidence": confidence,
-		"passed":     status == models.IVCUStatusVerified,
+		"ivcu_id":          ivcuID,
+		"status":           status,
+		"confidence":       confidence,
+		"passed":           status == models.IVCUStatusVerified,
+		"verifier_results": verifierResults,
 	})
 }

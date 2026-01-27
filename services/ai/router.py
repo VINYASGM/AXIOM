@@ -214,32 +214,32 @@ class RouterMetrics:
         }
 
 
+@dataclass
+class ModelRoutingPolicy:
+    """Policy governing model selection and cost."""
+    org_id: str
+    allowed_models: List[str]
+    denied_models: List[str]
+    cost_preference: str = "balanced"  # cheapest, balanced, quality
+    default_model: Optional[str] = None
+
 class LLMRouter:
-    """
-    Routes LLM requests to appropriate providers.
-    
-    Features:
-    - Multiple providers with priority
-    - Routing rules based on model, cost, intent type
-    - Automatic fallback on failure
-    - Metrics tracking
-    
-    Usage:
-        router = LLMRouter()
-        router.register_provider("openai", openai_provider)
-        router.register_provider("mock", mock_provider)
-        router.set_fallback("mock")
-        
-        response = await router.chat(request)
-    """
+    # ... existing docstring ...
     
     def __init__(self):
         self.providers: Dict[str, LLMProvider] = {}
         self.rules: List[RoutingRule] = []
+        self.policies: Dict[str, ModelRoutingPolicy] = {}  # Key: org_id
         self.fallback: Optional[str] = None
         self.metrics = RouterMetrics()
         self._lock = Lock()
     
+    def set_policy(self, policy: ModelRoutingPolicy):
+        """Set a routing policy for an organization."""
+        with self._lock:
+            self.policies[policy.org_id] = policy
+
+    # ... existing methods (register_provider, unregister_provider, set_fallback, add_rule) ...
     def register_provider(self, name: str, provider: LLMProvider):
         """Register an LLM provider."""
         with self._lock:
@@ -260,6 +260,24 @@ class LLMRouter:
         with self._lock:
             self.rules.append(rule)
             self.rules.sort(key=lambda r: r.priority, reverse=True)
+
+    def _apply_policy(self, request: ChatRequest, provider: LLMProvider) -> bool:
+        """Check if provider/model complies with policy."""
+        org_id = request.metadata.get("org_id")
+        if not org_id or org_id not in self.policies:
+            return True
+        
+        policy = self.policies[org_id]
+        
+        # Check specific model constraints
+        if request.model in policy.denied_models:
+            return False
+            
+        if policy.allowed_models and request.model not in policy.allowed_models:
+            # If allow list is strict
+            return False
+            
+        return True
     
     def route(self, request: ChatRequest) -> Optional[LLMProvider]:
         """
@@ -270,15 +288,19 @@ class LLMRouter:
         """
         with self._lock:
             # Check rules in priority order
+            # Check rules in priority order
             for rule in self.rules:
                 if rule.matches(request):
                     if rule.provider in self.providers:
-                        return self.providers[rule.provider]
+                        provider = self.providers[rule.provider]
+                        if self._apply_policy(request, provider):
+                            return provider
             
             # Model-based routing (direct match)
             for name, provider in self.providers.items():
                 if request.model in provider.models:
-                    return provider
+                    if self._apply_policy(request, provider):
+                        return provider
             
             # Fallback
             if self.fallback and self.fallback in self.providers:

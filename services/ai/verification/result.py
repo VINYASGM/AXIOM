@@ -11,9 +11,10 @@ import uuid
 
 class VerificationTier(str, Enum):
     """Verification tier levels"""
-    TIER_1 = "tier_1"  # Syntax, types, lint (fast)
-    TIER_2 = "tier_2"  # Unit tests, property tests (medium)
-    TIER_3 = "tier_3"  # Formal verification, fuzzing (slow)
+    TIER_0 = "tier_0"  # Tree-sitter syntax check (<10ms)
+    TIER_1 = "tier_1"  # Static: types, lint (<2s)
+    TIER_2 = "tier_2"  # Dynamic: unit tests, property tests (2-15s)
+    TIER_3 = "tier_3"  # Formal: SMT solving, fuzzing (15s-5min)
 
 
 class VerifierResult(BaseModel):
@@ -31,6 +32,32 @@ class VerifierResult(BaseModel):
     details: Dict[str, Any] = {}
 
 
+# Alias for TierResult used by orchestra
+class TierResult(BaseModel):
+    """Result from a verification tier - used by orchestra for tier-specific results"""
+    tier: VerificationTier
+    verifier: str
+    passed: bool
+    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+    execution_time_ms: float = 0.0
+    details: Dict[str, Any] = {}
+    errors: List[Any] = []
+    warnings: List[Any] = []
+    
+    def to_verifier_result(self) -> VerifierResult:
+        """Convert to VerifierResult for backwards compatibility"""
+        return VerifierResult(
+            name=self.verifier,
+            tier=self.tier,
+            passed=self.passed,
+            confidence=self.confidence,
+            duration_ms=self.execution_time_ms,
+            details=self.details,
+            errors=[str(e) for e in self.errors],
+            warnings=[str(w) for w in self.warnings]
+        )
+
+
 class VerificationResult(BaseModel):
     """Aggregate result from verification orchestra"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -42,6 +69,7 @@ class VerificationResult(BaseModel):
     confidence: float = 0.0
     
     # Tier results
+    tier_0_passed: bool = True  # Tree-sitter (syntax)
     tier_1_passed: bool = False
     tier_2_passed: Optional[bool] = None
     tier_3_passed: Optional[bool] = None
@@ -67,7 +95,9 @@ class VerificationResult(BaseModel):
         self.total_duration_ms += result.duration_ms
         
         # Update tier status
-        if result.tier == VerificationTier.TIER_1:
+        if result.tier == VerificationTier.TIER_0:
+            self.tier_0_passed = self.tier_0_passed and result.passed
+        elif result.tier == VerificationTier.TIER_1:
             if self.tier_1_passed is True or self.tier_1_passed is False:
                 self.tier_1_passed = self.tier_1_passed and result.passed
             else:
@@ -88,7 +118,7 @@ class VerificationResult(BaseModel):
         self.completed_at = datetime.utcnow().isoformat()
         
         # Calculate overall passed status
-        self.passed = self.tier_1_passed
+        self.passed = self.tier_0_passed and self.tier_1_passed
         if self.tier_2_passed is not None:
             self.passed = self.passed and self.tier_2_passed
         
@@ -97,7 +127,7 @@ class VerificationResult(BaseModel):
             total_weight = 0.0
             weighted_sum = 0.0
             for r in self.verifier_results:
-                weight = 1.0 if r.tier == VerificationTier.TIER_1 else 1.5 if r.tier == VerificationTier.TIER_2 else 2.0
+                weight = 0.5 if r.tier == VerificationTier.TIER_0 else 1.0 if r.tier == VerificationTier.TIER_1 else 1.5 if r.tier == VerificationTier.TIER_2 else 2.0
                 weighted_sum += r.confidence * weight
                 total_weight += weight
             self.confidence = weighted_sum / total_weight if total_weight > 0 else 0.0

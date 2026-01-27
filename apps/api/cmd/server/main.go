@@ -11,20 +11,71 @@ import (
 
 	"github.com/axiom/api/internal/config"
 	"github.com/axiom/api/internal/database"
+	"github.com/axiom/api/internal/eventbus"
 	"github.com/axiom/api/internal/handlers"
 	"github.com/axiom/api/internal/middleware"
+	"github.com/axiom/api/internal/orchestration"
+	"github.com/axiom/api/internal/telemetry"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
 func main() {
-	// Initialize logger
-	logger, err := zap.NewProduction()
+	// Initialize context
+	ctx := context.Background()
+
+	// Initialize logger with stdout sync
+	zapConfig := zap.NewProductionConfig()
+	zapConfig.OutputPaths = []string{"stdout"}
+	zapConfig.ErrorOutputPaths = []string{"stderr"}
+	logger, err := zapConfig.Build()
 	if err != nil {
 		log.Fatalf("failed to initialize logger: %v", err)
 	}
 	defer logger.Sync()
 
+	// Immediate startup log
+	logger.Info("AXIOM API starting...",
+		zap.String("version", "0.1.0"),
+		zap.String("environment", os.Getenv("GO_ENV")),
+	)
+
+	logger.Info("Initializing telemetry...")
+	// Initialize Telemetry
+	shutdownTelemetry, err := telemetry.InitTracer(ctx, "axiom-api")
+	if err != nil {
+		// Log but don't fail, as collector might be down
+		logger.Error("failed to initialize telemetry", zap.Error(err))
+	} else {
+		defer func() {
+			if err := shutdownTelemetry(ctx); err != nil {
+				logger.Error("failed to shutdown telemetry", zap.Error(err))
+			}
+		}()
+	}
+
+	logger.Info("Initializing NATS...")
+	// Initialize NATS
+	_, err = eventbus.InitNATSClient()
+	if err != nil {
+		logger.Error("failed to connect to NATS", zap.Error(err))
+	} else {
+		defer eventbus.CloseNATSClient()
+		logger.Info("connected to NATS")
+	}
+
+	logger.Info("Initializing Temporal...")
+	// Initialize Temporal Client
+	_, err = orchestration.InitTemporalClient()
+	if err != nil {
+		logger.Error("failed to connect to temporal", zap.Error(err))
+		// We don't fatal here to allow API to run even if Temporal is down (optional resilience)
+	} else {
+		defer orchestration.CloseTemporalClient()
+		logger.Info("connected to temporal")
+	}
+
+	logger.Info("Loading configuration...")
 	// Load configuration
 	cfg := config.Load()
 
@@ -53,25 +104,24 @@ func main() {
 
 	router := gin.New()
 	router.Use(gin.Recovery())
-	router.Use(middleware.Logger(logger))
+	router.Use(middleware.RequestLogger(logger)) // Use new request logger
 	router.Use(middleware.CORS())
 	router.Use(middleware.RequestID())
 
-	// Health check
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "healthy",
-			"service": "axiom-api",
-			"version": "0.1.0",
-		})
-	})
+	// Health check handlers
+	healthHandler := handlers.NewHealthHandler(db, rdb, cfg.AIServiceURL)
+	router.GET("/health", healthHandler.Health)
+	router.GET("/health/deep", healthHandler.DeepHealth)
+
+	logger.Info("Router initialized, setting up handlers...")
 
 	// Initialize handlers
 	intentHandler := handlers.NewIntentHandler(db, cfg.AIServiceURL, logger)
 	generationHandler := handlers.NewGenerationHandler(db, cfg.AIServiceURL, logger)
-	verificationHandler := handlers.NewVerificationHandler(db, logger)
+	verificationHandler := handlers.NewVerificationHandler(db, cfg.AIServiceURL, logger)
 	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret, logger)
-	intelligenceHandler := handlers.NewIntelligenceHandler(logger)
+	intelligenceHandler := handlers.NewIntelligenceHandler(db, cfg.AIServiceURL, logger)
+	economicsHandler := handlers.NewEconomicsHandler(db, cfg.AIServiceURL, logger)
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
@@ -84,10 +134,18 @@ func main() {
 			auth.POST("/refresh", authHandler.RefreshToken)
 		}
 
-		// Protected routes
+		// Protected routes with default rate limiting
 		protected := v1.Group("")
 		protected.Use(middleware.Auth(cfg.JWTSecret))
+		protected.Use(middleware.RateLimitMiddleware(middleware.DefaultRateLimiter)) // 100 req/min
 		{
+			// Cost routes
+			cost := protected.Group("/cost")
+			{
+				cost.POST("/estimate", economicsHandler.EstimateCost)
+				cost.GET("/session/:sessionId", economicsHandler.GetSessionCost)
+			}
+
 			// Intent routes
 			intent := protected.Group("/intent")
 			{
@@ -99,16 +157,20 @@ func main() {
 				intent.GET("/project/:projectId", intentHandler.ListProjectIVCUs)
 			}
 
-			// Generation routes
+			// Generation routes - stricter rate limit + circuit breaker
 			generation := protected.Group("/generation")
+			generation.Use(middleware.RateLimitMiddleware(middleware.StrictRateLimiter)) // 20 req/min
+			generation.Use(middleware.CircuitBreakerMiddleware(middleware.AIServiceCircuitBreaker))
 			{
 				generation.POST("/start", generationHandler.StartGeneration)
 				generation.GET("/:id/status", generationHandler.GetGenerationStatus)
 				generation.POST("/:id/cancel", generationHandler.CancelGeneration)
 			}
 
-			// Verification routes
+			// Verification routes - circuit breaker for AI service
 			verification := protected.Group("/verification")
+			verification.Use(middleware.RateLimitMiddleware(middleware.StrictRateLimiter)) // 20 req/min
+			verification.Use(middleware.CircuitBreakerMiddleware(middleware.AIServiceCircuitBreaker))
 			{
 				verification.POST("/verify", verificationHandler.Verify)
 				verification.GET("/:id", verificationHandler.GetResult)
@@ -136,6 +198,7 @@ func main() {
 				user.GET("/me", authHandler.GetCurrentUser)
 				user.PUT("/me/settings", authHandler.UpdateSettings)
 				user.GET("/learner", intelligenceHandler.GetUserLearner) // Phase 3
+				user.POST("/learner/event", intelligenceHandler.PostLearningEvent)
 			}
 
 			// Reasoning routes (Phase 3)

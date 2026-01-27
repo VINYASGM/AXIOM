@@ -277,3 +277,13 @@ class EconomicsService:
             "operations_count": len(budget.records),
             "warning": budget.get_warning()
         }
+
+
+# Global instance
+_global_economics: Optional[EconomicsService] = None
+
+def get_economics_service() -> EconomicsService:
+    global _global_economics
+    if _global_economics is None:
+        _global_economics = EconomicsService()
+    return _global_economics

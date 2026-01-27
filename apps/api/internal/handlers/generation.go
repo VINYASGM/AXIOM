@@ -30,8 +30,10 @@ func NewGenerationHandler(db *database.Postgres, aiServiceURL string, logger *za
 
 // StartGenerationRequest is the request body for starting generation
 type StartGenerationRequest struct {
-	IVCUID   uuid.UUID `json:"ivcu_id" binding:"required"`
-	Language string    `json:"language" binding:"required"`
+	IVCUID         uuid.UUID `json:"ivcu_id" binding:"required"`
+	Language       string    `json:"language" binding:"required"`
+	CandidateCount int       `json:"candidate_count"`
+	Strategy       string    `json:"strategy"` // "simple", "parallel", "adaptive"
 }
 
 // GenerationStatus represents the status of a generation
@@ -85,7 +87,7 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 	h.db.Pool().Exec(c.Request.Context(), updateQuery, req.IVCUID)
 
 	// Call AI service to generate code
-	go h.generateCode(req.IVCUID, sdoID, rawIntent, req.Language, userID)
+	go h.generateCode(req.IVCUID, sdoID, rawIntent, req.Language, userID, req.CandidateCount, req.Strategy)
 
 	generationID := uuid.New()
 	c.JSON(http.StatusAccepted, gin.H{
@@ -97,24 +99,45 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 }
 
 // generateCode calls the AI service to generate code (runs async)
-func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, sdoID string, intent string, language string, userID uuid.UUID) {
+func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, sdoID string, intent string, language string, userID uuid.UUID, candidateCount int, strategy string) {
 	startTime := time.Now()
 
-	// Prepare request to AI service
+	// Default values
+	if candidateCount <= 0 {
+		candidateCount = 3
+	}
+	if strategy == "" {
+		strategy = "simple"
+	}
+
+	// Determine endpoint and body based on strategy
+	endpoint := "/generate"
 	reqBody := map[string]interface{}{
 		"sdo_id":   sdoID,
 		"intent":   intent,
 		"language": language,
 	}
+
+	if strategy == "parallel" || strategy == "adaptive" {
+		endpoint = "/generate/parallel"
+		if strategy == "adaptive" {
+			endpoint = "/generate/adaptive"
+			reqBody["early_stop_threshold"] = 0.9
+		} else {
+			reqBody["candidate_count"] = candidateCount
+		}
+	}
+
 	jsonBody, _ := json.Marshal(reqBody)
 
 	// Call AI service
-	resp, err := http.Post(h.aiServiceURL+"/generate", "application/json", bytes.NewBuffer(jsonBody))
+	resp, err := http.Post(h.aiServiceURL+endpoint, "application/json", bytes.NewBuffer(jsonBody))
 
 	var code string
 	var confidence float64 = 0.0
 	var modelID string = "gpt-4"
 	status := models.IVCUStatusFailed
+	// var verificationResult []byte
 
 	// Use background context for async DB operations
 	ctx := context.Background()
@@ -123,17 +146,36 @@ func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, sdoID string, intent 
 		defer resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
 
-		var result struct {
-			Code       string  `json:"code"`
-			Confidence float64 `json:"confidence"`
-			ModelID    string  `json:"model_id"`
+		if strategy == "simple" {
+			var result struct {
+				Code       string  `json:"code"`
+				Confidence float64 `json:"confidence"`
+				ModelID    string  `json:"model_id"`
+			}
+			if json.Unmarshal(body, &result) == nil {
+				code = result.Code
+				confidence = result.Confidence
+				modelID = result.ModelID
+				status = models.IVCUStatusVerifying
+			}
+		} else {
+			// Handle complex response for parallel/adaptive
+			var result struct {
+				SelectedCode string  `json:"selected_code"`
+				Confidence   float64 `json:"confidence"`
+				Status       string  `json:"status"`
+			}
+			if json.Unmarshal(body, &result) == nil {
+				code = result.SelectedCode
+				confidence = result.Confidence
+				status = models.IVCUStatusVerified // Usually parallel returns verified result
+				if result.Status != "verified" {
+					status = models.IVCUStatusVerifying // Or back to verifying if not fully done
+				}
+			}
 		}
-		if json.Unmarshal(body, &result) == nil {
-			code = result.Code
-			confidence = result.Confidence
-			modelID = result.ModelID
-			status = models.IVCUStatusVerifying
-		}
+	} else {
+		h.logger.Error("AI generation failed", zap.Error(err))
 	}
 
 	latency := time.Since(startTime).Milliseconds()
@@ -158,6 +200,7 @@ func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, sdoID string, intent 
 		zap.String("ivcu_id", ivcuID.String()),
 		zap.String("status", string(status)),
 		zap.Int64("latency_ms", latency),
+		zap.String("strategy", strategy),
 	)
 }
 

@@ -1,10 +1,18 @@
 """
 Verification Orchestra
 Coordinates multi-tier verification across all verifiers.
+
+Architecture v2.0:
+- Tier 0: Tree-sitter (<10ms) - Instant syntax validation
+- Tier 1: Static analysis (<2s) - Type checking, linting
+- Tier 2: Dynamic testing (2-15s) - Unit tests, property checks
+- Tier 3: Formal verification (15s-5min) - SMT solving, fuzzing
 """
 import asyncio
-from typing import Optional, List
-from .result import VerificationResult, VerificationTier
+import time
+from typing import Optional, List, Dict, Any
+from .result import VerificationResult, VerificationTier, TierResult
+from .tier0 import verify_tier0, Tier0Result
 from .tier1 import Tier1Verifier
 from .tier2 import Tier2Verifier
 from .tier3 import Tier3Verifier
@@ -15,13 +23,21 @@ from llm import LLMService
 class VerificationOrchestra:
     """
     Orchestrates all verification tiers.
-    Implements fail-fast strategy: stops if Tier 1 fails severely.
+    
+    Verification Pipeline:
+    1. Tier 0 (Tree-sitter): Instant syntax check - always runs first
+    2. Tier 1 (Static): Type checking, linting - runs if Tier 0 passes
+    3. Tier 2 (Dynamic): Tests in sandbox - runs if Tier 1 passes
+    4. Tier 3 (Formal): SMT solving - runs on request for high assurance
+    
+    Implements fail-fast strategy: stops if earlier tiers fail critically.
     """
     
     def __init__(self, llm_service: Optional[LLMService] = None):
         self.tier1 = Tier1Verifier()
         self.tier2 = Tier2Verifier(llm_service)
         self.tier3 = Tier3Verifier()
+        self._tier0_enabled = True
     
     async def verify(
         self,
@@ -54,7 +70,36 @@ class VerificationOrchestra:
             candidate_id=candidate_id
         )
         
-        # Run Tier 1 (always)
+        # Run Tier 0 (Tree-sitter, <10ms) - Always runs first
+        if self._tier0_enabled:
+            tier0_start = time.time()
+            tier0_result = await verify_tier0(code, language)
+            tier0_time = (time.time() - tier0_start) * 1000
+            
+            # Convert Tier 0 result to TierResult
+            tier0_tier_result = TierResult(
+                tier=VerificationTier.TIER_0,
+                verifier="tree_sitter",
+                passed=tier0_result.passed,
+                confidence=tier0_result.confidence,
+                execution_time_ms=tier0_time,
+                details={
+                    "node_count": tier0_result.node_count,
+                    "functions": tier0_result.functions,
+                    "classes": tier0_result.classes,
+                    "imports": tier0_result.imports
+                },
+                errors=[e.to_dict() for e in tier0_result.errors],
+                warnings=[w.to_dict() for w in tier0_result.warnings]
+            )
+            result.add_result(tier0_tier_result)
+            
+            # Fail fast if Tier 0 has syntax errors
+            if fail_fast and not tier0_result.passed:
+                result.limitations.append("Subsequent tiers skipped due to syntax errors")
+                return result.finalize()
+        
+        # Run Tier 1 (Static analysis, <2s)
         tier1_results = await self.tier1.verify_all(code, language)
         for r in tier1_results:
             result.add_result(r)

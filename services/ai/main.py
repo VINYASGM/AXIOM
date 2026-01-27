@@ -7,6 +7,7 @@ import os
 import uuid
 import time
 import json
+import logging
 
 # Import modules
 from sdo import SDO, SDOStatus, Candidate
@@ -17,6 +18,17 @@ from economics import EconomicsService, CostEstimate
 from verification import VerificationOrchestra, VerificationResult
 from knowledge import KnowledgeService
 from database import DatabaseService
+import eventbus
+
+# OpenTelemetry Imports
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+
+# Temporal Imports
+from temporalio.client import Client as TemporalClient
 
 # Initialize Services (will be fully initialized in lifespan)
 llm_service = LLMService()
@@ -27,6 +39,20 @@ economics_service = EconomicsService()
 verification_orchestra = VerificationOrchestra(llm_service)
 database_service = DatabaseService()
 
+# Global Temporal Client
+temporal_client = None
+
+def init_telemetry():
+    """Initialize OpenTelemetry."""
+    try:
+        resource = Resource.create({"service.name": "axiom-ai"})
+        trace.set_tracer_provider(TracerProvider(resource=resource))
+        otlp_exporter = OTLPSpanExporter(endpoint="http://otel-collector:4317", insecure=True)
+        span_processor = BatchSpanProcessor(otlp_exporter)
+        trace.get_tracer_provider().add_span_processor(span_processor)
+        print("Telemetry initialized successfully")
+    except Exception as e:
+        print(f"Failed to initialize telemetry: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,6 +60,20 @@ async def lifespan(app: FastAPI):
     # Startup
     print("Initializing AXIOM AI Service v0.5.0...")
     
+    # Initialize Telemetry
+    init_telemetry()
+    
+    # Initialize NATS
+    await eventbus.init_nats()
+    
+    # Initialize Temporal
+    global temporal_client
+    try:
+        temporal_client = await TemporalClient.connect("axiom-temporal:7233")
+        print("Connected to Temporal")
+    except Exception as e:
+        print(f"Failed to connect to Temporal: {e}")
+
     # Initialize Memory
     memory_initialized = await memory_service.initialize()
     if memory_initialized:
@@ -686,6 +726,45 @@ async def get_generation_stats():
         overall_stats=stats["overall_stats"]
     )
 
+
+# ============================================================================
+# Learner Model Endpoints (Phase 3)
+# ============================================================================
+
+class LearningEvent(BaseModel):
+    user_id: str
+    event_type: str
+    details: Dict[str, Any]
+    timestamp: Optional[str] = None
+
+class LearningResponse(BaseModel):
+    user_id: str
+    updated_skills: Dict[str, int]
+    message: str
+
+@app.post("/learner/event", response_model=LearningResponse)
+async def process_learning_event(event: LearningEvent):
+    """
+    Process a learning event and update user skills.
+    Currently a simple heuristic based on event type.
+    """
+    # Simple heuristic logic
+    skills_update = {}
+    
+    if event.event_type == "code_accepted":
+        # Boost verification skill
+        skills_update["verification"] = 1
+    elif event.event_type == "refinement_loop":
+        # Boost intent expression if refinement led to success
+        skills_update["intent_expression"] = 1
+    elif event.event_type == "error_fixed":
+        skills_update["debugging"] = 1
+        
+    return LearningResponse(
+        user_id=event.user_id,
+        updated_skills=skills_update,
+        message="Event processed"
+    )
 
 # ============================================================================
 # Adaptive Generation Endpoints (Phase 2)

@@ -82,9 +82,18 @@ class LLMService:
             print(f"LLM Parsing failed: {e}")
             return self._mock_parse_intent(raw_intent)
 
-    async def generate_code(self, sdo: SDO) -> str:
+class ReasoningStep(BaseModel):
+    step: str = Field(description="Title of the reasoning step")
+    explanation: str = Field(description="Detailed explanation of the decision")
+    confidence: float = Field(description="Confidence in this step (0.0-1.0)")
+
+class CodeGenerationResult(BaseModel):
+    code: str = Field(description="The generated code")
+    reasoning: List[ReasoningStep] = Field(description="Chain of thought leading to this code")
+
+    async def generate_code(self, sdo: SDO) -> Dict[str, Any]:
         """
-        Generate code based on the SDO state.
+        Generate code and reasoning trace based on the SDO state.
         Uses RAG context if available for better generation.
         """
         if not self.model:
@@ -95,8 +104,10 @@ class LLMService:
         if sdo.parsed_intent and isinstance(sdo.parsed_intent, dict):
             rag_context = sdo.parsed_intent.get("_rag_context", "")
         
+        parser = JsonOutputParser(pydantic_object=CodeGenerationResult)
+
         # Build system prompt with optional context
-        system_prompt = "You are an expert developer in {language}. Write high-quality, production-ready code based on the following requirements."
+        system_prompt = "You are an expert developer in {language}. Write high-quality, production-ready code based on the following requirements.\n{format_instructions}"
         if rag_context:
             system_prompt += "\n\nUse the following codebase context to inform your implementation:\n{context}"
             
@@ -120,13 +131,11 @@ Contracts:
 {contracts}
 </question>
 
-The response should be specific and use code references or precise syntax when possible.
-Return ONLY the code. No markdown formatting, no explanations.
-
+The response must be a JSON object containing the code and a reasoning trace.
 Assistant:""")
         ])
         
-        chain = prompt | self.model | StrOutputParser()
+        chain = prompt | self.model | parser
         
         try:
             result = await chain.ainvoke({
@@ -134,7 +143,8 @@ Assistant:""")
                 "description": sdo.parsed_intent.get("description", sdo.raw_intent) if sdo.parsed_intent else sdo.raw_intent,
                 "constraints": ", ".join(sdo.constraints),
                 "contracts": "\n".join([f"- {c.type}: {c.description}" for c in sdo.contracts]),
-                "context": rag_context
+                "context": rag_context,
+                "format_instructions": parser.get_format_instructions()
             })
             return result
         except Exception as e:
@@ -152,14 +162,18 @@ Assistant:""")
             "suggested_refinements": ["Did you mean standard implementation?"]
         }
 
-    def _mock_generate_code(self, sdo: SDO) -> str:
+    def _mock_generate_code(self, sdo: SDO) -> Dict[str, Any]:
         """Fallback template generator"""
         lang = sdo.language.lower()
         intent_lower = sdo.raw_intent.lower()
         
+        code = f"// Generated from: {sdo.raw_intent}"
+        if lang == "python":
+            code = f"def generated_function():\n    # Generated from: {sdo.raw_intent}\n    pass"
+
         # Mock Unit Tests Generation
         if "test" in intent_lower or "pytest" in intent_lower:
-            return """
+            code = """
 import pytest
 from solution import *
 
@@ -172,6 +186,10 @@ def test_fibonacci_edge():
     assert True
 """
 
-        if lang == "python":
-            return f"def generated_function():\n    # Generated from: {sdo.raw_intent}\n    pass"
-        return f"// Generated from: {sdo.raw_intent}"
+        return {
+            "code": code,
+            "reasoning": [
+                {"step": "Initial Analysis", "explanation": "Analyzed intent and identified key requirements.", "confidence": 0.9},
+                {"step": "Implementation", "explanation": "Implemented core logic using standard patterns.", "confidence": 0.85}
+            ]
+        }

@@ -57,9 +57,23 @@ class KnowledgeService:
     Acts as the bridge between SDO Engine and Memory Service.
     """
     
-    def __init__(self, memory_service: MemoryService):
+    def __init__(self, memory_service: MemoryService, neo4j_uri: str = "bolt://neo4j:7687", neo4j_auth: tuple = ("neo4j", "axiom_dev_password")):
         self.memory = memory_service
+        self.driver = None
+        try:
+             from neo4j import GraphDatabase
+             self.driver = GraphDatabase.driver(neo4j_uri, auth=neo4j_auth)
+        except ImportError:
+             print("Neo4j driver not installed. Graph features disabled.")
+        except Exception as e:
+             print(f"Failed to connect to Neo4j: {e}")
         
+    def close(self):
+        if self.driver:
+            self.driver.close()
+
+    # ... [retrieve_context_for_intent unchanged] ...
+    
     async def retrieve_context_for_intent(self, intent: str) -> RetrievedContext:
         """
         Gather all relevant context for a given user intent.
@@ -109,10 +123,34 @@ class KnowledgeService:
         )
         
         # Store the generated code
-        # In a real system, we might chunk this intelligently
         await self.memory.store_code_chunk(
             content=code,
             file_path=f"generated/{sdo_id}.{language}", # Virtual path
             language=language,
             sdo_id=sdo_id
         )
+        
+        # 3. Store Graph Relationships (Neo4j)
+        if self.driver:
+            try:
+                def _create_graph_nodes(tx, sdo_id, intent, language):
+                    # Create Intent Node
+                    tx.run("MERGE (i:Intent {id: $id}) "
+                           "ON CREATE SET i.text = $text, i.created_at = timestamp()",
+                           id=sdo_id, text=intent)
+                    
+                    # Create Implementation Node
+                    tx.run("MERGE (c:Code {id: $id}) "
+                           "ON CREATE SET c.language = $lang",
+                           id=sdo_id, lang=language)
+                           
+                    # Link
+                    tx.run("MATCH (i:Intent {id: $id}), (c:Code {id: $id}) "
+                           "MERGE (i)-[:IMPLEMENTED_BY]->(c)",
+                           id=sdo_id)
+                
+                with self.driver.session() as session:
+                    session.execute_write(_create_graph_nodes, sdo_id, intent, language)
+                    
+            except Exception as e:
+                print(f"Graph ingestion failed: {e}")

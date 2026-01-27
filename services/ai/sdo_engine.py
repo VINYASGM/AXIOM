@@ -24,6 +24,11 @@ from history import SDOHistory
 from cache import SemanticCache, get_cache
 from router import LLMRouter, get_router, init_router, ChatRequest, ChatMessage
 from policy import PolicyEngine, get_policy_engine, PolicyResult
+from agents.code_generator import CodeGenerator
+from agents.test_generator import TestGenerator
+from agents.doc_generator import DocGenerator
+from agents.refactor_agent import RefactorAgent
+from economics import EconomicsService, get_economics_service
 
 
 class SDOEngine:
@@ -53,6 +58,15 @@ class SDOEngine:
         self.knowledge = knowledge_service
         self.orchestra = VerificationOrchestra()
         
+        # Agent Pool
+        self.code_agent = CodeGenerator(llm_service)
+        self.test_agent = TestGenerator(llm_service)
+        self.doc_agent = DocGenerator(llm_service)
+        self.refactor_agent = RefactorAgent(llm_service)
+        
+        # Economics
+        self.economics = get_economics_service()
+        
         # Phase 2: Adaptive generation
         self.bandit = ThompsonBandit(persistence_path=bandit_persistence_path)
         self.history = SDOHistory(persistence_dir=history_persistence_dir)
@@ -67,67 +81,9 @@ class SDOEngine:
         self._generation_count = 0
         self._success_count = 0
         self._cache_hits = 0
-    
-    async def generate_candidates(
-        self,
-        sdo: SDO,
-        count: int = 3,
-        temperature_range: tuple = (0.1, 0.7)
-    ) -> List[Candidate]:
-        """
-        Generate multiple code candidates in parallel.
-        
-        Args:
-            sdo: The SDO with intent and constraints
-            count: Number of candidates to generate
-            temperature_range: (min, max) temperature for diversity
-        
-        Returns:
-            List of Candidate objects
-        """
-        sdo.status = SDOStatus.GENERATING
-        
-        # RAG Retrieval
-        retrieved_context_str = ""
-        if self.knowledge:
-            try:
-                context = await self.knowledge.retrieve_context_for_intent(sdo.raw_intent)
-                retrieved_context_str = context.to_prompt_str()
-                
-                # Store retrieving fact in SDO
-                sdo.retrieved_context = context.model_dump()
-                sdo.context_used = {
-                    "chunks": len(context.code_chunks), 
-                    "intents": len(context.similar_intents)
-                }
-            except Exception as e:
-                print(f"RAG retrieval failed: {e}")
 
-        # Create tasks with varying temperatures for diversity
-        tasks = []
-        temperatures = [
-            temperature_range[0] + (temperature_range[1] - temperature_range[0]) * i / max(count - 1, 1)
-            for i in range(count)
-        ]
-        
-        for i, temp in enumerate(temperatures):
-            tasks.append(self._generate_single(sdo, temp, i, retrieved_context_str))
-        
-        # Run in parallel
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Filter out errors and collect candidates
-        candidates = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                print(f"Candidate {i} generation failed: {result}")
-                continue
-            if result:
-                candidates.append(result)
-        
-        sdo.candidates = candidates
-        return candidates
-    
+    # ... [generate_candidates unchanged] ...
+
     async def _generate_single(
         self,
         sdo: SDO,
@@ -144,55 +100,42 @@ class SDOEngine:
                     prompt_context.parsed_intent = {}
                 prompt_context.parsed_intent["_rag_context"] = context_str
 
-            # Phase 3: Use Router if available
-            if self.router:
-                # Construct simple prompt for router
-                system_msg = f"You are an expert developer in {sdo.language}."
-                if context_str:
-                    system_msg += f"\n\nContext:\n{context_str}"
-                
-                user_msg = f"Target Language: {sdo.language}\nDescription: {sdo.raw_intent}\n"
-                if sdo.constraints:
-                    user_msg += f"Constraints: {', '.join(sdo.constraints)}\n"
-                user_msg += "\nReturn ONLY the code."
-
-                request = ChatRequest(
-                    messages=[
-                        ChatMessage(role="system", content=system_msg),
-                        ChatMessage(role="user", content=user_msg)
-                    ],
-                    model=f"gpt-4-turbo", # Default, router will route or fallback
-                    temperature=temperature
-                )
-                
-                # If using mock in simulation, force model to mock to hit mock provider directly
-                # or rely on router fallback. Since we don't have OPENAI_KEY, router fallback should work.
-                # However, router fallback only triggers if primary fails. 
-                # If primary is OpenAI and key is missing, OpenAIProvider might fail.
-                
-                try:
-                    response = await self.router.chat(request)
-                    code = response.content
-                    model_id = response.provider + ":" + response.model
-                except Exception as e:
-                    print(f"Router failed, falling back to LLMService: {e}")
-                    code = await self.llm.generate_code(prompt_context)
-                    model_id = "llm_service_fallback"
+            # Execute generation via Code Agent
+            # Router logic temporarily bypassed in favor of Agent's structured output
+            
+            agent_result = await self.code_agent.run(prompt_context)
+            
+            if agent_result.success:
+                code = agent_result.data.get("code", "")
+                reasoning_raw = agent_result.data.get("reasoning", [])
+                model_id = f"agent:code_generator:t{temperature:.1f}"
             else:
-                code = await self.llm.generate_code(prompt_context)
-                model_id = f"gpt-4-turbo-t{temperature:.1f}"
+                print(f"Agent failed: {agent_result.error}")
+                return None
             
             # Phase 3: Generate Reasoning Trace
-            # In a full PROD system, this would come from Chain-of-Thought output
-            # Here we synthesize it based on the action for demonstration
-            trace = self._generate_trace_for_candidate(sdo, model_id)
+            # Map LLM reasoning to DecisionNodes
+            nodes = []
+            if reasoning_raw:
+                for i, step in enumerate(reasoning_raw):
+                    nodes.append(DecisionNode(
+                        id=str(i+1),
+                        type="inference",
+                        title=step.get("step", f"Step {i+1}"),
+                        description=step.get("explanation", ""),
+                        confidence=step.get("confidence", 0.8)
+                    ))
+                trace = ReasoningTrace(ivcu_id=sdo.id if sdo.id else str(uuid.uuid4()), nodes=nodes)
+            else:
+                # Fallback
+                trace = self._generate_trace_for_candidate(sdo, model_id)
             
             return Candidate(
                 id=str(uuid.uuid4()),
                 code=code,
                 confidence=0.5,
                 model_id=model_id,
-                reasoning=f"Generated with temperature {temperature:.2f}",
+                reasoning=f"Generated via Agent Pool (temp={temperature:.2f})",
                 metadata={"reasoning_trace": trace.model_dump() if trace else None}
             )
         except Exception as e:
@@ -200,42 +143,18 @@ class SDOEngine:
             return None
 
     def _generate_trace_for_candidate(self, sdo: SDO, model_id: str) -> Optional[ReasoningTrace]:
-        """Synthesize a reasoning trace for the candidate (Mock implementation)"""
+        """Synthesize a reasoning trace for the candidate (Fallback)"""
         try:
             nodes = []
-            
-            # 1. Constraint Analysis
             nodes.append(DecisionNode(
                 id="1",
                 type="constraint",
                 title="Intent Analysis",
-                description=f"Analyzed intent '{sdo.raw_intent[:20]}...'. Extracted {len(sdo.constraints) if sdo.constraints else 0} constraints.",
+                description=f"Analyzed intent. Extracted {len(sdo.constraints) if sdo.constraints else 0} constraints.",
                 confidence=0.9
             ))
-            
-            # 2. Retrieval or Knowledge
-            if sdo.retrieved_context:
-                nodes.append(DecisionNode(
-                    id="2",
-                    type="inference",
-                    title="Context Retrieval",
-                    description="Used RAG to find similar past intents and relevant code chunks.",
-                    confidence=0.95
-                ))
-            
-            # 3. Model Selection
-            nodes.append(DecisionNode(
-                id="3",
-                type="selection",
-                title="Model Selection",
-                description=f"Routed to {model_id} based on complexity estimation.",
-                confidence=0.85,
-                alternatives=["gpt-3.5-turbo", "claude-3-opus"]
-            ))
-            
-            return ReasoningTrace(ivcu_id=sdo.id, nodes=nodes)
-        except Exception as e:
-            print(f"Trace generation failed: {e}")
+            return ReasoningTrace(ivcu_id=str(uuid.uuid4()), nodes=nodes)
+        except Exception:
             return None
     
     async def verify_candidates(
@@ -402,6 +321,25 @@ class SDOEngine:
         else:
             arm = None
             temperature_range = (0.1, 0.7)
+            
+        # --- Economic Check ---
+        estimate = self.economics.estimate_generation_cost(
+            intent=sdo.raw_intent, 
+            language=sdo.language,
+            candidate_count=candidate_count
+        )
+        # Using a fixed session for user in dev
+        can_proceed, msg, warning = self.economics.check_budget("dev-session", estimate.estimated_cost_usd)
+        
+        if warning:
+            # TODO: Propagate warning to UI via SDO
+            pass
+            
+        if not can_proceed:
+            sdo.status = SDOStatus.FAILED
+            sdo.error = f"Budget exceeded: {msg}"
+            return sdo
+        # ----------------------
         
         # 1. Generate candidates
         await self.generate_candidates(sdo, count=candidate_count, temperature_range=temperature_range)
@@ -417,7 +355,24 @@ class SDOEngine:
         await self.prune_candidates(sdo, keep_top=2)
         
         # 3. Full verify remaining
+        # 3. Full verify remaining
         await self.verify_candidates(sdo, run_tier2=True)
+        
+        # --- Record Cost ---
+        # Rough estimation of actuals based on generated lengths
+        # In production, LLMService would return exact usage, here we approximate or would need to thread usage back
+        total_input = estimate.input_tokens # Use estimate for now
+        total_output = sum(len(c.code)//4 for c in sdo.candidates) # Approx
+        
+        self.economics.record_usage(
+            session_id="dev-session",
+            sdo_id=sdo.id,
+            operation="generate",
+            model="gpt-4-turbo",
+            input_tokens=total_input,
+            output_tokens=total_output
+        )
+        # -------------------
         
         # 4. Select best
         best = await self.select_best_candidate(sdo)

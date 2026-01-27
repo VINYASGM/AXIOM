@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+package axiom.memory.v1;
+
+option go_package = "github.com/axiom/api/gen/memory/v1";
+
+// =============================================================================
+// MEMORY SERVICE
+// GraphRAG unified memory with vector + graph retrieval
+// =============================================================================
+
+service MemoryService {
+  // Search memory with GraphRAG (vector + graph)
+  rpc Search(SearchRequest) returns (SearchResponse);
+  
+  // Stream search results as they're found
+  rpc SearchStream(SearchRequest) returns (stream MemoryNode);
+  
+  // Store a memory node
+  rpc Store(StoreRequest) returns (StoreResponse);
+  
+  // Add relationship between nodes
+  rpc AddRelationship(AddRelationshipRequest) returns (AddRelationshipResponse);
+  
+  // Get impact analysis for a node
+  rpc GetImpact(GetImpactRequest) returns (GetImpactResponse);
+  
+  // Supersede a node with a new version
+  rpc Supersede(SupersedeRequest) returns (SupersedeResponse);
+}
+
+// =============================================================================
+// MESSAGES
+// =============================================================================
+
+// Memory tiers
+enum MemoryTier {
+  MEMORY_TIER_UNSPECIFIED = 0;
+  MEMORY_TIER_WORKING = 1;
+  MEMORY_TIER_PROJECT = 2;
+  MEMORY_TIER_ORG = 3;
+}
+
+// Relationship types
+enum RelationshipType {
+  RELATIONSHIP_UNSPECIFIED = 0;
+  RELATIONSHIP_IMPLEMENTS = 1;
+  RELATIONSHIP_DEPENDS_ON = 2;
+  RELATIONSHIP_SUPERSEDES = 3;
+  RELATIONSHIP_REFINES = 4;
+  RELATIONSHIP_TESTS = 5;
+  RELATIONSHIP_DOCUMENTS = 6;
+}
+
+// Search request
+message SearchRequest {
+  string query = 1;
+  string project_id = 2;
+  MemoryTier tier = 3;
+  repeated string node_types = 4;
+  int32 limit = 5;
+  float similarity_threshold = 6;
+  bool include_related = 7;
+  int32 max_depth = 8;
+}
+
+// Search response
+message SearchResponse {
+  repeated MemoryNode primary_nodes = 1;
+  repeated MemoryNode related_nodes = 2;
+  repeated MemoryEdge relationships = 3;
+  float query_time_ms = 4;
+  float best_score = 5;
+}
+
+// Memory node
+message MemoryNode {
+  string id = 1;
+  string content = 2;
+  string node_type = 3;
+  MemoryTier tier = 4;
+  map<string, string> metadata = 5;
+  string created_at = 6;
+  string source_ivcu_id = 7;
+  string project_id = 8;
+  float similarity_score = 9;
+}
+
+// Memory edge
+message MemoryEdge {
+  string id = 1;
+  string source_id = 2;
+  string target_id = 3;
+  RelationshipType relationship = 4;
+  float weight = 5;
+  map<string, string> metadata = 6;
+}
+
+// Store request
+message StoreRequest {
+  string content = 1;
+  string node_type = 2;
+  MemoryTier tier = 3;
+  map<string, string> metadata = 4;
+  string source_ivcu_id = 5;
+  string project_id = 6;
+  repeated Relationship relationships = 7;
+}
+
+message Relationship {
+  string target_id = 1;
+  RelationshipType type = 2;
+}
+
+message StoreResponse {
+  string node_id = 1;
+  bool success = 2;
+}
+
+// Add relationship
+message AddRelationshipRequest {
+  string source_id = 1;
+  string target_id = 2;
+  RelationshipType relationship = 3;
+  float weight = 4;
+  map<string, string> metadata = 5;
+}
+
+message AddRelationshipResponse {
+  string edge_id = 1;
+  bool success = 2;
+}
+
+// Impact analysis
+message GetImpactRequest {
+  string node_id = 1;
+  int32 max_depth = 2;
+}
+
+message GetImpactResponse {
+  string source_node_id = 1;
+  int32 affected_count = 2;
+  string impact_severity = 3;
+  int32 max_depth_reached = 4;
+  repeated AffectedNode affected_nodes = 5;
+}
+
+message AffectedNode {
+  string id = 1;
+  string content_preview = 2;
+  string node_type = 3;
+  int32 depth = 4;
+  string relationship = 5;
+}
+
+// Supersede
+message SupersedeRequest {
+  string old_node_id = 1;
+  string new_node_id = 2;
+}
+
+message SupersedeResponse {
+  bool success = 1;
+}

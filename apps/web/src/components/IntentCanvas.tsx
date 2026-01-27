@@ -35,6 +35,7 @@ export function IntentCanvas() {
         setCostEstimate,
         budgetWarning,
         setBudgetWarning,
+        currentProject,
     } = useAxiomStore();
 
     const [isParsing, setIsParsing] = useState(false);
@@ -120,11 +121,10 @@ export function IntentCanvas() {
 
         setIsGenerating(true);
 
-        const sdoId = crypto.randomUUID();
-
-        // Initialize empty IVCU with local ID
+        // Optimistic UI update
+        const tempId = crypto.randomUUID();
         setCurrentIVCU({
-            id: sdoId,
+            id: tempId,
             rawIntent,
             parsedIntent,
             code: null,
@@ -136,71 +136,111 @@ export function IntentCanvas() {
         });
 
         try {
-            // New Parallel Generation Endpoint
-            const res = await fetch('/api/v1/generate/parallel', {
+            // 1. Create IVCU
+            // Ensure we have a valid project ID
+            const projectId = currentProject?.id || '123e4567-e89b-12d3-a456-426614174000';
+
+            const createRes = await fetch('/api/v1/intent/create', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    sdo_id: sdoId,
-                    intent: rawIntent,
+                    project_id: projectId,
+                    raw_intent: rawIntent,
+                    contracts: []
+                })
+            });
+
+            if (!createRes.ok) {
+                throw new Error(await createRes.text());
+            }
+
+            const createData = await createRes.json();
+            const realId = createData.ivcu_id;
+
+            // 2. Start Generation (Async via Temporal)
+            const startRes = await fetch('/api/v1/generation/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    ivcu_id: realId,
                     language: selectedLanguage,
-                    candidate_count: candidateCount
+                    candidate_count: candidateCount,
+                    strategy: candidateCount > 1 ? 'parallel' : 'simple'
                 }),
             });
 
-            if (res.ok) {
-                const data = await res.json();
-
-                // Construct IVCU from response
-                const selectedCandidate = data.candidates.find((c: any) => c.id === data.selected_candidate_id);
-
-                setCurrentIVCU({
-                    id: data.sdo_id,
-                    rawIntent,
-                    parsedIntent,
-                    code: data.selected_code,
-                    language: selectedLanguage,
-                    confidence: data.confidence,
-                    status: data.status === 'verified' ? 'verified' : 'failed',
-                    contracts: [],
-                    verificationResult: selectedCandidate ? {
-                        passed: selectedCandidate.verification_passed,
-                        confidence: selectedCandidate.verification_score,
-                        verifierResults: [], // Detailed results would be fetched separately or added to response
-                        limitations: []
-                    } : null,
-                    candidates: data.candidates.map((c: any) => ({
-                        id: c.id,
-                        code: c.code,
-                        confidence: c.confidence,
-                        verificationPassed: c.verification_passed,
-                        verificationScore: c.verification_score,
-                        pruned: c.pruned
-                    })),
-                    selectedCandidateId: data.selected_candidate_id,
-                    costUsd: data.cost_usd
-                });
-            } else {
-                console.error("Generation failed:", await res.text());
-                // Handle error state
-                setCurrentIVCU({
-                    id: sdoId,
-                    rawIntent,
-                    parsedIntent,
-                    code: null,
-                    language: selectedLanguage,
-                    confidence: 0,
-                    status: 'failed',
-                    contracts: [],
-                    verificationResult: null
-                });
+            if (!startRes.ok) {
+                throw new Error(await startRes.text());
             }
+
+            // 3. Poll for status
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusRes = await fetch(`/api/v1/generation/${realId}/status`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+
+                    if (!statusRes.ok) return;
+
+                    const statusData = await statusRes.json();
+
+                    if (statusData.status === 'verified') {
+                        clearInterval(pollInterval);
+
+                        const resultRes = await fetch(`/api/v1/intent/${realId}`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+
+                        if (resultRes.ok) {
+                            const ivcu = await resultRes.json();
+
+                            setCurrentIVCU({
+                                id: ivcu.id,
+                                rawIntent: ivcu.raw_intent,
+                                parsedIntent: ivcu.parsed_intent,
+                                code: ivcu.code,
+                                language: ivcu.language || selectedLanguage,
+                                confidence: ivcu.confidence_score,
+                                status: 'verified',
+                                contracts: ivcu.contracts || [],
+                                verificationResult: ivcu.verification_result || null,
+                                candidates: [],
+                                selectedCandidateId: undefined,
+                                costUsd: 0
+                            });
+                        }
+                        setIsGenerating(false);
+                    } else if (statusData.status === 'failed') {
+                        clearInterval(pollInterval);
+                        throw new Error('Generation failed');
+                    }
+                    // For feedback, we could pulse updates here if backend provided progress
+                } catch (err) {
+                    console.error("Polling error", err);
+                    clearInterval(pollInterval);
+                    setIsGenerating(false);
+                }
+            }, 1000);
+
         } catch (error) {
             console.error('Generation error:', error);
-        } finally {
+            setCurrentIVCU({
+                id: tempId,
+                rawIntent,
+                parsedIntent,
+                code: null,
+                language: selectedLanguage,
+                confidence: 0,
+                status: 'failed',
+                contracts: [],
+                verificationResult: null
+            });
             setIsGenerating(false);
         }
     };
