@@ -11,6 +11,7 @@ from .models import (
     Session,
     ROLE_PERMISSIONS,
 )
+from .auth_service import AuthService, get_auth_service, AuthConfig
 
 __all__ = [
     "User",
@@ -21,4 +22,7 @@ __all__ = [
     "APIKey",
     "Session",
     "ROLE_PERMISSIONS",
+    "AuthService",
+    "get_auth_service",
+    "AuthConfig",
 ]

@@ -999,6 +999,31 @@ class VerifyProofResponse(BaseModel):
     signature_valid: bool
     errors: List[str] = []
 
+class GenerateProofRequest(BaseModel):
+    sdo_id: str
+    candidate_id: Optional[str] = None
+    contracts: Optional[List[Dict[str, Any]]] = None
+
+class GenerateProofResponse(BaseModel):
+    proof_id: str
+    ivcu_id: str
+    code_hash: str
+    signature: str
+    overall_confidence: float
+    success: bool
+    error: Optional[str] = None
+
+class VerifyProofRequest(BaseModel):
+    code: str
+    proof: Dict[str, Any]
+    public_key: Optional[str] = None
+
+class VerifyProofResponse(BaseModel):
+    valid: bool
+    hash_valid: bool
+    signature_valid: bool
+    errors: List[str] = []
+
 class ExportBundleRequest(BaseModel):
     sdo_id: str
     candidate_id: Optional[str] = None

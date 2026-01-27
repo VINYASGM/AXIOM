@@ -1,0 +1,2038 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AXIOM AI Service",
+    "description": "AI-powered intent parsing, code generation with parallel candidates, verification, cost control, and persistence",
+    "version": "0.5.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "description": "Health check endpoint",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Metrics",
+        "description": "Prometheus metrics endpoint",
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/parse-intent": {
+      "post": {
+        "summary": "Parse Intent",
+        "description": "Parse raw natural language intent into structured format using LLM.\nCreates a new SDO instance.",
+        "operationId": "parse_intent_parse_intent_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParseIntentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParseIntentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/generate": {
+      "post": {
+        "summary": "Generate Code",
+        "description": "Generate code from SDO state.",
+        "operationId": "generate_code_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/memory/health": {
+      "get": {
+        "summary": "Memory Health Endpoint",
+        "description": "Check memory service (Qdrant) health.",
+        "operationId": "memory_health_endpoint_memory_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/memory/store": {
+      "post": {
+        "summary": "Store In Memory",
+        "description": "Store content in vector memory.",
+        "operationId": "store_in_memory_memory_store_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryStoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryStoreResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/memory/retrieve": {
+      "get": {
+        "summary": "Retrieve From Memory",
+        "description": "Retrieve relevant context from vector memory using semantic search.",
+        "operationId": "retrieve_from_memory_memory_retrieve_get",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Search query",
+              "title": "Query"
+            },
+            "description": "Search query"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Type: code or intent",
+              "default": "code",
+              "title": "Type"
+            },
+            "description": "Type: code or intent"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "Max results",
+              "default": 5,
+              "title": "Limit"
+            },
+            "description": "Max results"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryRetrieveResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/generate/parallel": {
+      "post": {
+        "summary": "Generate Parallel",
+        "description": "Generate multiple code candidates in parallel, verify, and select best.",
+        "operationId": "generate_parallel_generate_parallel_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParallelGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParallelGenerateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/verify": {
+      "post": {
+        "summary": "Verify Code",
+        "description": "Verify code through the verification orchestra.",
+        "operationId": "verify_code_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/verify/{sdo_id}": {
+      "get": {
+        "summary": "Get Verification Status",
+        "description": "Get verification status for an SDO.",
+        "operationId": "get_verification_status_verify__sdo_id__get",
+        "parameters": [
+          {
+            "name": "sdo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "SDO ID",
+              "title": "Sdo Id"
+            },
+            "description": "SDO ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cost/estimate": {
+      "post": {
+        "summary": "Estimate Cost",
+        "description": "Estimate cost before generation.",
+        "operationId": "estimate_cost_cost_estimate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CostEstimateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostEstimateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cost/session/{session_id}": {
+      "get": {
+        "summary": "Get Session Cost",
+        "description": "Get cost summary for a session.",
+        "operationId": "get_session_cost_cost_session__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Session ID",
+              "title": "Session Id"
+            },
+            "description": "Session ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/undo/{sdo_id}": {
+      "post": {
+        "summary": "Undo Sdo",
+        "description": "Rollback SDO to previous state.\nUses the SDOHistory system for snapshots.",
+        "operationId": "undo_sdo_undo__sdo_id__post",
+        "parameters": [
+          {
+            "name": "sdo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "SDO ID",
+              "title": "Sdo Id"
+            },
+            "description": "SDO ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UndoResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/redo/{sdo_id}": {
+      "post": {
+        "summary": "Redo Sdo",
+        "description": "Redo the last undone operation on an SDO.",
+        "operationId": "redo_sdo_redo__sdo_id__post",
+        "parameters": [
+          {
+            "name": "sdo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "SDO ID",
+              "title": "Sdo Id"
+            },
+            "description": "SDO ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UndoResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/history/{sdo_id}": {
+      "get": {
+        "summary": "Get Sdo History",
+        "description": "Get operation history for an SDO.",
+        "operationId": "get_sdo_history_history__sdo_id__get",
+        "parameters": [
+          {
+            "name": "sdo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "SDO ID",
+              "title": "Sdo Id"
+            },
+            "description": "SDO ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/history/{sdo_id}/restore/{snapshot_id}": {
+      "post": {
+        "summary": "Restore Snapshot",
+        "description": "Restore SDO to a specific snapshot.",
+        "operationId": "restore_snapshot_history__sdo_id__restore__snapshot_id__post",
+        "parameters": [
+          {
+            "name": "sdo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "SDO ID",
+              "title": "Sdo Id"
+            },
+            "description": "SDO ID"
+          },
+          {
+            "name": "snapshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Snapshot ID to restore",
+              "title": "Snapshot Id"
+            },
+            "description": "Snapshot ID to restore"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stats/generation": {
+      "get": {
+        "summary": "Get Generation Stats",
+        "description": "Get generation statistics including bandit arm performance.",
+        "operationId": "get_generation_stats_stats_generation_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/learner/event": {
+      "post": {
+        "summary": "Process Learning Event",
+        "description": "Process a learning event and update user skills.\nCurrently a simple heuristic based on event type.",
+        "operationId": "process_learning_event_learner_event_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LearningEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LearningResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/generate/adaptive": {
+      "post": {
+        "summary": "Generate Adaptive",
+        "description": "Generate code using adaptive strategy with early stopping.",
+        "operationId": "generate_adaptive_generate_adaptive_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdaptiveGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParallelGenerateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sdo/{sdo_id}": {
+      "get": {
+        "summary": "Get Sdo",
+        "description": "Get full SDO state.",
+        "operationId": "get_sdo_sdo__sdo_id__get",
+        "parameters": [
+          {
+            "name": "sdo_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "SDO ID",
+              "title": "Sdo Id"
+            },
+            "description": "SDO ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cache/stats": {
+      "get": {
+        "summary": "Get Cache Stats",
+        "description": "Get semantic cache statistics.",
+        "operationId": "get_cache_stats_cache_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cache/entries": {
+      "get": {
+        "summary": "List Cache Entries",
+        "description": "List recent cache entries.",
+        "operationId": "list_cache_entries_cache_entries_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cache/clear": {
+      "delete": {
+        "summary": "Clear Cache",
+        "description": "Clear all cache entries.",
+        "operationId": "clear_cache_cache_clear_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/router/providers": {
+      "get": {
+        "summary": "List Providers",
+        "description": "List registered LLM providers.",
+        "operationId": "list_providers_router_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/router/metrics": {
+      "get": {
+        "summary": "Get Router Metrics",
+        "description": "Get LLM router metrics.",
+        "operationId": "get_router_metrics_router_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/router/health": {
+      "get": {
+        "summary": "Check Provider Health",
+        "description": "Check health of all LLM providers.",
+        "operationId": "check_provider_health_router_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/policy/rules": {
+      "get": {
+        "summary": "List Policy Rules",
+        "description": "List all policy rules.",
+        "operationId": "list_policy_rules_policy_rules_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/policy/check": {
+      "post": {
+        "summary": "Check Policy",
+        "description": "Check code or intent against policies.",
+        "operationId": "check_policy_policy_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/proof/generate": {
+      "post": {
+        "summary": "Generate Proof",
+        "description": "Generate a cryptographic proof for a verified IVCU.",
+        "operationId": "generate_proof_proof_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateProofRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerateProofResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/proof/verify": {
+      "post": {
+        "summary": "Verify Proof",
+        "description": "Verify a proof independently.",
+        "operationId": "verify_proof_proof_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyProofRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyProofResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/proof/export": {
+      "post": {
+        "summary": "Export Proof Bundle",
+        "description": "Export a proof bundle for an IVCU.",
+        "operationId": "export_proof_bundle_proof_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportBundleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/proof/public-key": {
+      "get": {
+        "summary": "Get Public Key",
+        "description": "Get the server's public key for proof verification.",
+        "operationId": "get_public_key_proof_public_key_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AdaptiveGenerateRequest": {
+        "properties": {
+          "sdo_id": {
+            "type": "string",
+            "title": "Sdo Id"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language",
+            "default": "python"
+          },
+          "early_stop_threshold": {
+            "type": "number",
+            "title": "Early Stop Threshold",
+            "default": 0.9
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id",
+            "default": "default"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sdo_id"
+        ],
+        "title": "AdaptiveGenerateRequest"
+      },
+      "CandidateResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "verification_passed": {
+            "type": "boolean",
+            "title": "Verification Passed"
+          },
+          "verification_score": {
+            "type": "number",
+            "title": "Verification Score"
+          },
+          "pruned": {
+            "type": "boolean",
+            "title": "Pruned"
+          },
+          "verification_result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Result"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "confidence",
+          "verification_passed",
+          "verification_score",
+          "pruned"
+        ],
+        "title": "CandidateResponse"
+      },
+      "CostEstimateRequest": {
+        "properties": {
+          "intent": {
+            "type": "string",
+            "title": "Intent"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language",
+            "default": "python"
+          },
+          "candidate_count": {
+            "type": "integer",
+            "title": "Candidate Count",
+            "default": 3
+          }
+        },
+        "type": "object",
+        "required": [
+          "intent"
+        ],
+        "title": "CostEstimateRequest"
+      },
+      "CostEstimateResponse": {
+        "properties": {
+          "estimated_cost_usd": {
+            "type": "number",
+            "title": "Estimated Cost Usd"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens"
+          },
+          "embedding_tokens": {
+            "type": "integer",
+            "title": "Embedding Tokens"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "estimated_cost_usd",
+          "input_tokens",
+          "output_tokens",
+          "embedding_tokens",
+          "model"
+        ],
+        "title": "CostEstimateResponse"
+      },
+      "ExportBundleRequest": {
+        "properties": {
+          "sdo_id": {
+            "type": "string",
+            "title": "Sdo Id"
+          },
+          "candidate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          },
+          "include_tests": {
+            "type": "boolean",
+            "title": "Include Tests",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "sdo_id"
+        ],
+        "title": "ExportBundleRequest"
+      },
+      "GenerateProofRequest": {
+        "properties": {
+          "sdo_id": {
+            "type": "string",
+            "title": "Sdo Id"
+          },
+          "candidate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          },
+          "contracts": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contracts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sdo_id"
+        ],
+        "title": "GenerateProofRequest"
+      },
+      "GenerateProofResponse": {
+        "properties": {
+          "proof_id": {
+            "type": "string",
+            "title": "Proof Id"
+          },
+          "ivcu_id": {
+            "type": "string",
+            "title": "Ivcu Id"
+          },
+          "code_hash": {
+            "type": "string",
+            "title": "Code Hash"
+          },
+          "signature": {
+            "type": "string",
+            "title": "Signature"
+          },
+          "overall_confidence": {
+            "type": "number",
+            "title": "Overall Confidence"
+          },
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "proof_id",
+          "ivcu_id",
+          "code_hash",
+          "signature",
+          "overall_confidence",
+          "success"
+        ],
+        "title": "GenerateProofResponse"
+      },
+      "GenerateRequest": {
+        "properties": {
+          "sdo_id": {
+            "type": "string",
+            "title": "Sdo Id"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "contracts": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contracts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sdo_id",
+          "language"
+        ],
+        "title": "GenerateRequest"
+      },
+      "GenerateResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "sdo_id": {
+            "type": "string",
+            "title": "Sdo Id"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "confidence",
+          "model_id",
+          "sdo_id"
+        ],
+        "title": "GenerateResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HistoryItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "operation": {
+            "type": "string",
+            "title": "Operation"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "is_current": {
+            "type": "boolean",
+            "title": "Is Current"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "operation",
+          "created_at",
+          "is_current"
+        ],
+        "title": "HistoryItem"
+      },
+      "HistoryResponse": {
+        "properties": {
+          "sdo_id": {
+            "type": "string",
+            "title": "Sdo Id"
+          },
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryItem"
+            },
+            "type": "array",
+            "title": "Snapshots"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sdo_id",
+          "snapshots"
+        ],
+        "title": "HistoryResponse"
+      },
+      "LearningEvent": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "event_type",
+          "details"
+        ],
+        "title": "LearningEvent"
+      },
+      "LearningResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "updated_skills": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Updated Skills"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "updated_skills",
+          "message"
+        ],
+        "title": "LearningResponse"
+      },
+      "MemoryRetrieveResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "results",
+          "query",
+          "count"
+        ],
+        "title": "MemoryRetrieveResponse"
+      },
+      "MemoryStoreRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": "code"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language",
+            "default": "python"
+          },
+          "file_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Path"
+          },
+          "sdo_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sdo Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "MemoryStoreRequest"
+      },
+      "MemoryStoreResponse": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "success",
+          "message"
+        ],
+        "title": "MemoryStoreResponse"
+      },
+      "ParallelGenerateRequest": {
+        "properties": {
+          "sdo_id": {
+            "type": "string",
+            "title": "Sdo Id"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intent"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language",
+            "default": "python"
+          },
+          "candidate_count": {
+            "type": "integer",
+            "title": "Candidate Count",
+            "default": 3
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id",
+            "default": "default"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sdo_id"
+        ],
+        "title": "ParallelGenerateRequest"
+      },
+      "ParallelGenerateResponse": {
+        "properties": {
+          "sdo_id": {
+            "type": "string",
+            "title": "Sdo Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateResponse"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "selected_candidate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Candidate Id"
+          },
+          "selected_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Code"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd",
+            "default": 0.0
+          },
+          "retrieved_context": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieved Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sdo_id",
+          "status",
+          "candidates",
+          "confidence"
+        ],
+        "title": "ParallelGenerateResponse"
+      },
+      "ParseIntentRequest": {
+        "properties": {
+          "intent": {
+            "type": "string",
+            "title": "Intent"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "intent"
+        ],
+        "title": "ParseIntentRequest"
+      },
+      "ParseIntentResponse": {
+        "properties": {
+          "parsed_intent": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Parsed Intent"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "suggested_refinements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Suggested Refinements"
+          },
+          "extracted_constraints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Extracted Constraints"
+          },
+          "sdo_id": {
+            "type": "string",
+            "title": "Sdo Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "parsed_intent",
+          "confidence",
+          "suggested_refinements",
+          "extracted_constraints",
+          "sdo_id"
+        ],
+        "title": "ParseIntentResponse"
+      },
+      "PolicyCheckRequest": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "check_type": {
+            "type": "string",
+            "title": "Check Type",
+            "default": "post"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "PolicyCheckRequest"
+      },
+      "StatsResponse": {
+        "properties": {
+          "total_generations": {
+            "type": "integer",
+            "title": "Total Generations"
+          },
+          "successful": {
+            "type": "integer",
+            "title": "Successful"
+          },
+          "success_rate": {
+            "type": "number",
+            "title": "Success Rate"
+          },
+          "bandit_arms": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Bandit Arms"
+          },
+          "overall_stats": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Overall Stats"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_generations",
+          "successful",
+          "success_rate",
+          "bandit_arms",
+          "overall_stats"
+        ],
+        "title": "StatsResponse"
+      },
+      "UndoResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "previous_state": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "title": "UndoResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VerifyProofRequest": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "proof": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Proof"
+          },
+          "public_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "proof"
+        ],
+        "title": "VerifyProofRequest"
+      },
+      "VerifyProofResponse": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "hash_valid": {
+            "type": "boolean",
+            "title": "Hash Valid"
+          },
+          "signature_valid": {
+            "type": "boolean",
+            "title": "Signature Valid"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid",
+          "hash_valid",
+          "signature_valid"
+        ],
+        "title": "VerifyProofResponse"
+      },
+      "VerifyRequest": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language",
+            "default": "python"
+          },
+          "run_tier2": {
+            "type": "boolean",
+            "title": "Run Tier2",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "VerifyRequest"
+      }
+    }
+  }
+}

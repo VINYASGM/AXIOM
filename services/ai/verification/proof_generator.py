@@ -180,11 +180,14 @@ class ProofGenerator:
         
         # Sign if requested
         if sign:
+            # Set public key before signing so it's included in the signed payload
+            proof.public_key = self.proof_signer.get_public_key_pem()
             proof_dict = proof.to_dict()
+            
             signature, signer_id = self.proof_signer.sign_proof(proof_dict)
+            
             proof.signature = signature
             proof.signer_id = signer_id
-            proof.public_key = self.proof_signer.get_public_key_pem()
         
         return proof
     
