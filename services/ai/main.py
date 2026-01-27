@@ -145,14 +145,26 @@ async def health():
     """Health check endpoint"""
     memory_health = memory_service.health_check()
     db_status = "connected" if database_service.pool else "disconnected"
+    
+    # Check LLM providers
+    providers_status = llm_service.get_available_providers() if hasattr(llm_service, 'get_available_providers') else {}
+    default_provider = llm_service.default_provider if hasattr(llm_service, 'default_provider') else "mock"
+    
     return {
         "status": "healthy",
         "service": "axiom-ai",
         "version": "0.5.0",
         "database": db_status,
-        "llm_provider": "openai" if llm_service.openai_key else "mock",
+        "llm_providers": providers_status,
+        "default_llm_provider": default_provider,
         "memory": memory_health
     }
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint"""
+    from metrics import get_metrics
+    return get_metrics()
 
 @app.post("/parse-intent", response_model=ParseIntentResponse)
 async def parse_intent(request: ParseIntentRequest):

@@ -1,0 +1,304 @@
+{
+    "annotations": {
+        "list": []
+    },
+    "description": "AXIOM AI Service Monitoring",
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": null,
+    "links": [],
+    "liveNow": false,
+    "panels": [
+        {
+            "title": "Generation Requests",
+            "type": "stat",
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 0,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "sum(axiom_generation_requests_total)",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "palette-classic"
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "title": "Success Rate",
+            "type": "gauge",
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 6,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "sum(axiom_generation_requests_total{status=\"success\"}) / sum(axiom_generation_requests_total) * 100",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "red",
+                                "value": 0
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 80
+                            },
+                            {
+                                "color": "green",
+                                "value": 95
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "title": "Verification Pass Rate",
+            "type": "gauge",
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 12,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "sum(axiom_verification_requests_total{passed=\"true\"}) / sum(axiom_verification_requests_total) * 100",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percent",
+                    "min": 0,
+                    "max": 100,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "red",
+                                "value": 0
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 70
+                            },
+                            {
+                                "color": "green",
+                                "value": 90
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "title": "Active SDOs",
+            "type": "stat",
+            "gridPos": {
+                "h": 4,
+                "w": 6,
+                "x": 18,
+                "y": 0
+            },
+            "targets": [
+                {
+                    "expr": "axiom_active_sdos",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "title": "Generation Duration (p95)",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 4
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, sum(rate(axiom_generation_duration_seconds_bucket[5m])) by (le, provider))",
+                    "legendFormat": "{{provider}} p95",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            }
+        },
+        {
+            "title": "LLM Latency by Provider",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 4
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.95, sum(rate(axiom_llm_latency_seconds_bucket[5m])) by (le, provider, model))",
+                    "legendFormat": "{{provider}}/{{model}}",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            }
+        },
+        {
+            "title": "Requests by Provider",
+            "type": "piechart",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 12
+            },
+            "targets": [
+                {
+                    "expr": "sum by (provider) (axiom_generation_requests_total)",
+                    "legendFormat": "{{provider}}",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "title": "Verification by Tier",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 12
+            },
+            "targets": [
+                {
+                    "expr": "sum(rate(axiom_verification_requests_total[5m])) by (tier, passed)",
+                    "legendFormat": "{{tier}} - {{passed}}",
+                    "refId": "A"
+                }
+            ]
+        },
+        {
+            "title": "Provider Health",
+            "type": "stat",
+            "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 12
+            },
+            "targets": [
+                {
+                    "expr": "axiom_provider_health",
+                    "legendFormat": "{{provider}}",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "mappings": [
+                        {
+                            "type": "value",
+                            "options": {
+                                "0": {
+                                    "text": "Down",
+                                    "color": "red"
+                                }
+                            }
+                        },
+                        {
+                            "type": "value",
+                            "options": {
+                                "1": {
+                                    "text": "Up",
+                                    "color": "green"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "title": "Cost per Session",
+            "type": "timeseries",
+            "gridPos": {
+                "h": 8,
+                "w": 24,
+                "x": 0,
+                "y": 20
+            },
+            "targets": [
+                {
+                    "expr": "axiom_session_cost_usd",
+                    "legendFormat": "{{session_id}}",
+                    "refId": "A"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "currencyUSD"
+                }
+            }
+        }
+    ],
+    "refresh": "30s",
+    "schemaVersion": 38,
+    "style": "dark",
+    "tags": [
+        "axiom",
+        "ai",
+        "monitoring"
+    ],
+    "templating": {
+        "list": []
+    },
+    "time": {
+        "from": "now-1h",
+        "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "AXIOM AI Service",
+    "uid": "axiom-ai-dashboard",
+    "version": 1,
+    "weekStart": ""
+}

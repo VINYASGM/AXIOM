@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: axiom-config
+  namespace: axiom-dev
+  labels:
+    app.kubernetes.io/name: axiom
+data:
+  # Environment
+  NODE_ENV: "development"
+  GO_ENV: "development"
+
+  # Service URLs (internal k8s DNS)
+  API_URL: "http://axiom-api:8080"
+  AI_SERVICE_URL: "http://axiom-ai:8000"
+  WEB_URL: "http://axiom-web:3000"
+
+  # Redis
+  REDIS_URL: "redis://axiom-redis:6379"
+
+  # Qdrant (Vector DB)
+  QDRANT_URL: "http://axiom-qdrant:6333"
+
+  # NATS JetStream
+  NATS_URL: "nats://axiom-nats:4222"
+
+  # Feature flags
+  ENABLE_STREAMING: "true"
+  ENABLE_GRPC: "true"
+
+  # Model defaults
+  DEFAULT_MODEL: "deepseek-chat"
+  DEFAULT_EMBEDDING_MODEL: "text-embedding-3-small"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: axiom-config
+  namespace: axiom-staging
+  labels:
+    app.kubernetes.io/name: axiom
+data:
+  NODE_ENV: "staging"
+  GO_ENV: "staging"
+  API_URL: "http://axiom-api:8080"
+  AI_SERVICE_URL: "http://axiom-ai:8000"
+  WEB_URL: "http://axiom-web:3000"
+  REDIS_URL: "redis://axiom-redis:6379"
+  QDRANT_URL: "http://axiom-qdrant:6333"
+  NATS_URL: "nats://axiom-nats:4222"
+  ENABLE_STREAMING: "true"
+  ENABLE_GRPC: "true"
+  DEFAULT_MODEL: "deepseek-chat"
+  DEFAULT_EMBEDDING_MODEL: "text-embedding-3-small"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: axiom-config
+  namespace: axiom-prod
+  labels:
+    app.kubernetes.io/name: axiom
+data:
+  NODE_ENV: "production"
+  GO_ENV: "production"
+  API_URL: "http://axiom-api:8080"
+  AI_SERVICE_URL: "http://axiom-ai:8000"
+  WEB_URL: "http://axiom-web:3000"
+  REDIS_URL: "redis://axiom-redis:6379"
+  QDRANT_URL: "http://axiom-qdrant:6333"
+  NATS_URL: "nats://axiom-nats:4222"
+  ENABLE_STREAMING: "true"
+  ENABLE_GRPC: "true"
+  DEFAULT_MODEL: "deepseek-chat"
+  DEFAULT_EMBEDDING_MODEL: "text-embedding-3-small"

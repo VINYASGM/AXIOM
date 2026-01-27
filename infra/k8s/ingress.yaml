@@ -1,0 +1,90 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: axiom-ingress
+  namespace: axiom-dev
+  labels:
+    app.kubernetes.io/name: axiom
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/websocket-services: "axiom-api"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - dev.axiom.app
+        - api.dev.axiom.app
+      secretName: axiom-tls
+  rules:
+    # Frontend
+    - host: dev.axiom.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: axiom-web
+                port:
+                  number: 3000
+
+    # API Gateway
+    - host: api.dev.axiom.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: axiom-api
+                port:
+                  number: 8080
+---
+# Production Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: axiom-ingress
+  namespace: axiom-prod
+  labels:
+    app.kubernetes.io/name: axiom
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/websocket-services: "axiom-api"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - axiom.app
+        - api.axiom.app
+      secretName: axiom-tls-prod
+  rules:
+    - host: axiom.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: axiom-web
+                port:
+                  number: 3000
+
+    - host: api.axiom.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: axiom-api
+                port:
+                  number: 8080
