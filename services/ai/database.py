@@ -90,6 +90,85 @@ class DatabaseService:
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        
+        # =====================================================================
+        # RBAC Tables - Phase 7
+        # =====================================================================
+        
+        # Organizations Table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS organizations (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT NOT NULL,
+                slug TEXT UNIQUE NOT NULL,
+                plan TEXT DEFAULT 'free',
+                settings JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        
+        # Users Table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                email TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                password_hash TEXT,
+                org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+                role TEXT DEFAULT 'developer',
+                settings JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP WITH TIME ZONE,
+                is_active BOOLEAN DEFAULT TRUE
+            );
+        """)
+        
+        # Teams Table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS teams (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT NOT NULL,
+                org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+                description TEXT,
+                settings JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        
+        # Team Members Junction Table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS team_members (
+                team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
+                user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+                joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (team_id, user_id)
+            );
+        """)
+        
+        # API Keys Table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT NOT NULL,
+                key_hash TEXT UNIQUE NOT NULL,
+                key_prefix TEXT NOT NULL,
+                user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+                org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+                permissions JSONB DEFAULT '[]'::jsonb,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                last_used TIMESTAMP WITH TIME ZONE,
+                expires_at TIMESTAMP WITH TIME ZONE,
+                is_active BOOLEAN DEFAULT TRUE
+            );
+        """)
+        
+        # Add org_id to SDOs for multi-tenancy
+        try:
+            await conn.execute("ALTER TABLE sdos ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizations(id);")
+            await conn.execute("ALTER TABLE sdos ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id);")
+        except Exception:
+            pass
+
 
     async def save_sdo(self, sdo_data: Dict[str, Any]):
         """
