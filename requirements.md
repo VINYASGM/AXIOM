@@ -66,6 +66,13 @@ The system MUST implement a layered architecture with:
 - System MUST implement user-customizable model selection
 - System MUST provide model capability transparency
 
+**FR-011a: Dynamic Model Configuration**
+- System MUST load model configurations from database (model_configurations table)
+- System MUST NOT contain hardcoded model definitions in ModelRouter
+- System MUST reload configurations within 60 seconds of database updates
+- System MUST implement caching strategy with 95% cache hit rate target
+- System MUST define schema including id, name, provider, cost_per_1k_tokens, accuracy_score, capabilities
+
 **FR-012: SDO Engine (Speculative Decoding Optimization)**
 - System MUST generate multiple candidates using pruned candidate tree algorithm
 - System MUST implement Thompson Sampling for strategy selection
@@ -129,6 +136,22 @@ The system MUST implement a layered architecture with:
 - System MUST maintain Project Memory (project-specific knowledge)
 - System MUST maintain Organization Memory (shared team knowledge)
 - System MUST implement memory hierarchy with appropriate access controls
+- System MUST provide read-after-write consistency using sync token mechanism
+- System MUST support eventual consistency with configurable timeout (default 5 seconds)
+
+**FR-037a: Projection Engine**
+- System MUST implement Projection Engine to consume events from NATS JetStream
+- System MUST update both DGraph and pgvectorscale read models from events
+- System MUST emit sync tokens upon projection completion
+- System MUST maintain projection lag below 500ms for 95% of events
+- System MUST implement Go 1.22 for Projection Engine
+
+**FR-037b: Consistency Manager**
+- System MUST implement ConsistencyManager for read-after-write consistency
+- System MUST provide waitForProjection method accepting sync tokens
+- System MUST block until projection completes or timeout occurs (default 5 seconds)
+- System MUST integrate with Redis for tracking projection completion status
+- System MUST define fallback strategy for timeout scenarios (stale read warnings)
 
 **FR-038: Semantic Search**
 - System MUST support cosine similarity search with 0.92 threshold
@@ -175,6 +198,13 @@ The system MUST implement a layered architecture with:
 - System MUST implement project-scoped permissions
 - System MUST provide team collaboration features
 - System MUST support organization-level memory sharing
+
+**FR-056a: RBAC Enforcement**
+- System MUST implement RBAC Interceptor at gRPC layer
+- System MUST verify user permissions before allowing requests to proceed
+- System MUST integrate with policy engine for permission evaluation
+- System MUST enforce both project-level and organization-level permissions
+- System MUST maintain authorization check latency below 10ms
 
 **FR-057: Real-Time Collaboration**
 - System MUST support concurrent editing with conflict resolution
@@ -299,6 +329,8 @@ The system MUST implement a layered architecture with:
 - System MUST implement rate limiting and retry logic
 - System MUST support API key rotation and management
 - System MUST handle provider-specific error codes
+- System MUST support dynamic model configuration without service redeployment
+- System MUST implement circuit breaker pattern for model provider failures
 
 **IR-002: Development Tool Integration**
 - System MUST provide VS Code extension

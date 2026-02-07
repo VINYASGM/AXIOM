@@ -4,9 +4,16 @@
 
 This design document provides detailed technical specifications for implementing the AXIOM platform based on the comprehensive architecture v2.1.
 
-**Version:** 2.1  
-**Date:** January 25, 2026  
+**Version:** 2.2  
+**Date:** February 6, 2026  
 **Status:** Draft  
+
+**Technology Clarifications:**
+- **Graph Database**: DGraph (authoritative choice for production)
+- **Vector Database**: pgvectorscale (PostgreSQL extension)
+- **Embedding Model**: Gemini embedding-001 (cost-optimized default)
+- **Similarity Threshold**: 0.92 (aligned across all components)
+- **Event Streaming**: NATS JetStream (not Kafka)
 
 ## Table of Contents
 
@@ -31,23 +38,30 @@ The AXIOM platform follows a layered microservices architecture with event-drive
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    AXIOM PLATFORM                         │
+│                    AXIOM PLATFORM (Refined)                     │
 ├─────────────────────────────────────────────────────────────────┤
 │  Frontend Layer (Next.js 14 + gRPC-Web)                        │
 │  ├── Intent Canvas    ├── Review Panel    ├── Monitoring       │
-│  └── Adaptive Scaffolding                 └── Team Dashboard   │
+│  └── Adaptive Scaffolding (UserSkillProfile-driven)            │
 ├─────────────────────────────────────────────────────────────────┤
 │  AI Security Gateway (Input/Output Validation)                 │
+│  └── RBAC Interceptor (Authorization Enforcement)              │
 ├─────────────────────────────────────────────────────────────────┤
 │  Semantic Control Plane (Go + gRPC)                           │
-│  ├── Intent Service   ├── Economic Control ├── Speculation    │
+│  ├── Intent Service (Temporal Workflows)                       │
+│  ├── Economic Control ├── Speculation                          │
 │  ├── Learner Model    ├── Orchestration    └── Reasoning      │
+│  └── ConsistencyManager (Sync Token Coordination)              │
 ├─────────────────────────────────────────────────────────────────┤
 │  AI Layer (Python + FastAPI + gRPC)                           │
-│  ├── Model Router     ├── SDO Engine       ├── Agent Pool     │
+│  ├── Model Router (Dynamic Config from DB)                     │
+│  ├── SDO Engine       ├── Agent Pool                           │
 ├─────────────────────────────────────────────────────────────────┤
 │  Verification Layer (Rust + WASM + gRPC)                      │
 │  ├── Tree-sitter      ├── WASM Sandbox     ├── SMT Portfolio  │
+├─────────────────────────────────────────────────────────────────┤
+│  Event Processing Layer                                        │
+│  └── Projection Engine (Go - NATS to Read Models)              │
 ├─────────────────────────────────────────────────────────────────┤
 │  Memory Layer (GraphRAG)                                      │
 │  ├── pgvectorscale    ├── DGraph           ├── Unified Query  │
@@ -66,7 +80,79 @@ The AXIOM platform follows a layered microservices architecture with event-drive
 **Event Streaming:** NATS JetStream with event sourcing
 **Caching:** Redis with semantic similarity caching
 
-### 1.3 Request Flow Design
+### 1.3 Consistency Architecture (Eventual Consistency with Sync Tokens)
+
+The AXIOM platform implements an eventual consistency model between the event store and read models (DGraph and pgvectorscale). The Projection Engine consumes events from NATS JetStream and updates read models asynchronously. The ConsistencyManager provides read-after-write consistency using sync tokens.
+
+```mermaid
+sequenceDiagram
+    participant Agent as Agent/Service
+    participant EventStore as Event Store (PostgreSQL)
+    participant NATS as NATS JetStream
+    participant PE as Projection Engine
+    participant DG as DGraph
+    participant PG as pgvectorscale
+    participant CM as ConsistencyManager
+    participant Redis as Redis
+
+    Agent->>EventStore: Write Event
+    EventStore->>Agent: Return Event ID + Sequence
+    EventStore->>NATS: Publish Event
+    Agent->>CM: Generate Sync Token
+    CM->>Redis: Store Token (pending)
+    
+    NATS->>PE: Consume Event
+    PE->>DG: Update Graph
+    PE->>PG: Update Vectors
+    PE->>CM: Mark Token Complete
+    CM->>Redis: Update Token (complete)
+    
+    Agent->>CM: waitForProjection(token)
+    CM->>Redis: Check Token Status
+    alt Token Complete
+        CM->>Agent: Return Success
+    else Timeout (5s default)
+        CM->>Agent: Return Timeout Error
+    end
+```
+
+**Key Design Decisions:**
+- **Projection Latency Target:** <500ms for 95% of events
+- **Consistency Wait Timeout:** 5 seconds default
+- **Fallback Strategy:** Stale read warnings when timeout occurs
+- **Sync Token Format:** `sync:{aggregate_id}:{sequence}`
+
+### 1.4 Temporal Workflow Architecture
+
+Core services are mapped to Temporal workflows for durable execution and automatic retry handling.
+
+```mermaid
+graph TD
+    A[Intent Parsing Workflow] --> B[Parse Intent Activity]
+    A --> C[Extract Context Activity]
+    A --> D[Validate Intent Activity]
+    
+    E[Code Generation Workflow] --> F[Route Model Activity]
+    E --> G[Generate Candidates Activity]
+    E --> H[Verify Candidate Activity]
+    E --> I[Select Best Activity]
+    
+    G --> J[LLM API Call Activity]
+    G --> K[Embedding Generation Activity]
+    
+    style A fill:#e1f5ff
+    style E fill:#e1f5ff
+    style J fill:#fff4e1
+    style K fill:#fff4e1
+```
+
+**Workflow Definitions:**
+- **Intent Parsing Workflow**: Orchestrates intent interpretation with retries (30s timeout, 3 max attempts)
+- **Code Generation Workflow**: Manages candidate generation and verification pipeline (5min timeout)
+- **LLM API Call Activity**: Retrieves completions from model providers with circuit breaker
+- **Embedding Generation Activity**: Creates vector embeddings for semantic search (10s timeout)
+
+### 1.5 Request Flow Design
 
 ```mermaid
 sequenceDiagram
@@ -247,16 +333,169 @@ func (c *CostOracle) EstimateCost(req *CostRequest) (*CostEstimate, error) {
   // 5. Suggest cost-optimal alternatives
 }
 ```
+
+#### 2.2.3 RBAC Interceptor
+
+**Purpose:** Enforce role-based access control at the gRPC layer with <10ms latency.
+
+**Technology:** Go 1.22 with gRPC interceptors
+
+**Complete Implementation:** (Referenced from Section 5.2.1)
+
+```go
+package middleware
+
+import (
+    "context"
+    "fmt"
+    "reflect"
+    
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/codes"
+    "google.golang.org/grpc/metadata"
+    "google.golang.org/grpc/status"
+)
+
+type RBACInterceptor struct {
+    authzService AuthorizationService
+    jwtValidator JWTValidator
+}
+
+type Permission string
+
+const (
+    PermissionCreateIVCU   Permission = "ivcu:create"
+    PermissionReadIVCU     Permission = "ivcu:read"
+    PermissionUpdateIVCU   Permission = "ivcu:update"
+    PermissionDeleteIVCU   Permission = "ivcu:delete"
+    PermissionWriteProject Permission = "project:write"
+    PermissionDeleteProject Permission = "project:delete"
+)
+
+func (i *RBACInterceptor) UnaryInterceptor() grpc.UnaryServerInterceptor {
+    return func(
+        ctx context.Context,
+        req interface{},
+        info *grpc.UnaryServerInfo,
+        handler grpc.UnaryHandler,
+    ) (interface{}, error) {
+        // 1. Extract and validate JWT
+        token, err := i.extractToken(ctx)
+        if err != nil {
+            return nil, status.Error(codes.Unauthenticated, "missing or invalid token")
+        }
+        
+        claims, err := i.jwtValidator.Validate(token)
+        if err != nil {
+            return nil, status.Error(codes.Unauthenticated, "invalid token")
+        }
+        
+        // 2. Check permissions
+        permission := i.getRequiredPermission(info.FullMethod)
+        if permission == "" {
+            return handler(ctx, req) // Public endpoint
+        }
+        
+        // 3. Extract resource ID and authorize
+        resourceID := i.extractResourceID(req)
+        user := &User{ID: claims.Sub, Role: claims.Role, OrgID: claims.OrgID}
+        
+        if !i.authzService.HasPermission(user, permission, resourceID) {
+            return nil, status.Error(codes.PermissionDenied, "insufficient permissions")
+        }
+        
+        // 4. Add user context and proceed
+        ctx = context.WithValue(ctx, "user", user)
+        return handler(ctx, req)
+    }
+}
+
+func (i *RBACInterceptor) getRequiredPermission(method string) Permission {
+    permissionMap := map[string]Permission{
+        "/axiom.generation.v1.GenerationService/GenerateStream": PermissionCreateIVCU,
+        "/axiom.generation.v1.GenerationService/GetGeneration":  PermissionReadIVCU,
+        "/axiom.intent.v1.IntentService/CreateIntent":           PermissionCreateIVCU,
+        "/axiom.intent.v1.IntentService/GetIntent":              PermissionReadIVCU,
+        "/axiom.intent.v1.IntentService/UpdateIntent":           PermissionUpdateIVCU,
+        "/axiom.intent.v1.IntentService/DeleteIntent":           PermissionDeleteIVCU,
+        "/axiom.project.v1.ProjectService/CreateProject":        PermissionWriteProject,
+        "/axiom.project.v1.ProjectService/DeleteProject":        PermissionDeleteProject,
+    }
+    return permissionMap[method]
+}
+```
+
+**gRPC Server Integration:**
+```go
+func NewGRPCServer(rbacInterceptor *RBACInterceptor) *grpc.Server {
+    return grpc.NewServer(
+        grpc.ChainUnaryInterceptor(
+            rbacInterceptor.UnaryInterceptor(),
+            loggingInterceptor(),
+            metricsInterceptor(),
+        ),
+        grpc.ChainStreamInterceptor(
+            rbacInterceptor.StreamInterceptor(),
+            loggingStreamInterceptor(),
+        ),
+    )
+}
+```
+
 ### 2.3 AI Layer Design
 
-#### 2.3.1 Model Router
+#### 2.3.1 Model Router (Dynamic Configuration)
 
-**Technology:** Python 3.12 with FastAPI and gRPC
-**Key Features:** Multi-provider support, accuracy-first routing, auto-upgrade
+**Technology:** Python 3.12 with FastAPI, gRPC, and SQLAlchemy
 
-**Service Interface:**
+**Key Features:** 
+- Dynamic model configuration from database
+- Multi-provider support with circuit breakers
+- Accuracy-first routing with cost optimization
+- Auto-upgrade on verification failures
+- 95% cache hit rate target
+
+**Database Schema:**
+```sql
+-- Model tier enum
+CREATE TYPE model_tier_enum AS ENUM ('local', 'balanced', 'high_accuracy', 'frontier');
+
+-- Model configurations table
+CREATE TABLE model_configurations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(100) NOT NULL UNIQUE,
+    provider VARCHAR(50) NOT NULL,
+    model_id VARCHAR(100) NOT NULL,
+    tier model_tier_enum NOT NULL,
+    cost_per_1k_tokens DECIMAL(8,6) NOT NULL,
+    accuracy_score DECIMAL(3,2) CHECK (accuracy_score BETWEEN 0 AND 1),
+    capabilities JSONB DEFAULT '{}',
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for performance
+CREATE INDEX model_configurations_tier_idx ON model_configurations (tier, is_active);
+CREATE INDEX model_configurations_provider_idx ON model_configurations (provider);
+
+-- Example data
+INSERT INTO model_configurations (name, provider, model_id, tier, cost_per_1k_tokens, accuracy_score, capabilities) VALUES
+('deepseek-v3', 'deepseek', 'deepseek-chat', 'balanced', 0.002, 0.90, '{"code_generation": true, "reasoning": true}'),
+('claude-sonnet-4', 'anthropic', 'claude-sonnet-4-20250514', 'high_accuracy', 0.015, 0.92, '{"code_generation": true, "reasoning": true, "long_context": true}'),
+('gpt-4o', 'openai', 'gpt-4o-2024-11-20', 'high_accuracy', 0.030, 0.91, '{"code_generation": true, "vision": true}'),
+('qwen3-8b', 'local', 'qwen3-8b-instruct', 'local', 0.000, 0.75, '{"code_generation": true}'),
+('gemini-2.0-flash', 'google', 'gemini-2.0-flash', 'balanced', 0.003, 0.88, '{"code_generation": true, "multimodal": true}'),
+('claude-opus-4', 'anthropic', 'claude-opus-4-20250514', 'frontier', 0.150, 0.95, '{"code_generation": true, "reasoning": true, "long_context": true}');
+```
+
+**Dynamic Model Configuration Class:**
 ```python
-from typing import Dict, List, Optional
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List, Optional, Dict
+from datetime import datetime
+import asyncio
 from enum import Enum
 
 class ModelTier(Enum):
@@ -265,47 +504,241 @@ class ModelTier(Enum):
     HIGH_ACCURACY = "high_accuracy"
     FRONTIER = "frontier"
 
-class ModelRouter:
-    def __init__(self):
-        self.model_catalog = {
-            ModelTier.LOCAL: [
-                ModelConfig("qwen3-8b", cost_per_1k=0.0, accuracy=0.75),
-                ModelConfig("gemma-3-4b", cost_per_1k=0.0, accuracy=0.70),
-                ModelConfig("deepseek-coder-v2-7b", cost_per_1k=0.0, accuracy=0.80)
-            ],
-            ModelTier.BALANCED: [
-                ModelConfig("deepseek-v3", cost_per_1k=0.002, accuracy=0.90),
-                ModelConfig("claude-haiku", cost_per_1k=0.0025, accuracy=0.85),
-                ModelConfig("gemini-2.0-flash", cost_per_1k=0.003, accuracy=0.88)
-            ],
-            ModelTier.HIGH_ACCURACY: [
-                ModelConfig("claude-sonnet-4", cost_per_1k=0.015, accuracy=0.92),
-                ModelConfig("gpt-4o", cost_per_1k=0.030, accuracy=0.91),
-                ModelConfig("gemini-2.5-pro", cost_per_1k=0.035, accuracy=0.93)
-            ],
-            ModelTier.FRONTIER: [
-                ModelConfig("claude-opus-4", cost_per_1k=0.150, accuracy=0.95)
-            ]
+class ModelConfig:
+    def __init__(self, name: str, provider: str, model_id: str, tier: ModelTier,
+                 cost_per_1k: float, accuracy: float, capabilities: Dict):
+        self.name = name
+        self.provider = provider
+        self.model_id = model_id
+        self.tier = tier
+        self.cost_per_1k = cost_per_1k
+        self.accuracy = accuracy
+        self.capabilities = capabilities
+
+class DynamicModelConfig:
+    """Loads model configurations dynamically from database with caching"""
+    
+    def __init__(self, db_session: AsyncSession, cache_ttl: int = 60):
+        self.db = db_session
+        self.cache_ttl = cache_ttl
+        self._cache: Dict[str, ModelConfig] = {}
+        self._cache_timestamp: Optional[datetime] = None
+        self._lock = asyncio.Lock()
+    
+    async def get_models_by_tier(self, tier: ModelTier) -> List[ModelConfig]:
+        """Get all active models for a given tier"""
+        await self._refresh_cache_if_needed()
+        
+        return [
+            config for config in self._cache.values()
+            if config.tier == tier and config.is_active
+        ]
+    
+    async def get_model_by_name(self, name: str) -> Optional[ModelConfig]:
+        """Get a specific model configuration by name"""
+        await self._refresh_cache_if_needed()
+        return self._cache.get(name)
+    
+    async def _refresh_cache_if_needed(self):
+        """Refresh cache if TTL expired (60 seconds)"""
+        now = datetime.utcnow()
+        
+        if (self._cache_timestamp is None or 
+            (now - self._cache_timestamp).total_seconds() > self.cache_ttl):
+            
+            async with self._lock:
+                # Double-check after acquiring lock
+                if (self._cache_timestamp is None or 
+                    (now - self._cache_timestamp).total_seconds() > self.cache_ttl):
+                    await self._load_from_database()
+                    self._cache_timestamp = now
+    
+    async def _load_from_database(self):
+        """Load all active model configurations from database"""
+        stmt = select(ModelConfiguration).where(
+            ModelConfiguration.is_active == True
+        )
+        result = await self.db.execute(stmt)
+        configs = result.scalars().all()
+        
+        self._cache = {
+            config.name: ModelConfig(
+                name=config.name,
+                provider=config.provider,
+                model_id=config.model_id,
+                tier=ModelTier(config.tier),
+                cost_per_1k=float(config.cost_per_1k_tokens),
+                accuracy=float(config.accuracy_score),
+                capabilities=config.capabilities
+            )
+            for config in configs
         }
+        
+        log.info(f"Loaded {len(self._cache)} model configurations from database")
+```
+
+**Circuit Breaker Implementation:**
+```python
+from datetime import datetime, timedelta
+from typing import Dict
+
+class CircuitBreaker:
+    """Circuit breaker for model provider failures"""
     
-    async def route_request(self, 
-                          request: GenerationRequest,
-                          user_prefs: UserModelPreferences) -> ModelConfig:
-        # 1. Check user overrides for task type
-        # 2. Select default model (DeepSeek-V3 recommended)
-        # 3. Validate budget constraints
-        # 4. Return selected model configuration
-        pass
+    def __init__(self, failure_threshold: int = 3, timeout: int = 60):
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.failure_count = 0
+        self.last_failure_time: Optional[datetime] = None
+        self.state = "closed"  # closed, open, half_open
     
-    async def handle_verification_failure(self,
-                                        original_model: ModelConfig,
-                                        failure_count: int,
-                                        user_prefs: UserModelPreferences) -> Optional[ModelConfig]:
-        # Auto-upgrade logic when verification fails
+    def is_closed(self) -> bool:
+        """Check if circuit breaker allows requests"""
+        if self.state == "closed":
+            return True
+        
+        if self.state == "open":
+            # Check if timeout has elapsed
+            if datetime.utcnow() - self.last_failure_time > timedelta(seconds=self.timeout):
+                self.state = "half_open"
+                return True
+            return False
+        
+        # half_open state - allow one request to test
+        return True
+    
+    def record_success(self):
+        """Record successful request"""
+        if self.state == "half_open":
+            self.state = "closed"
+            self.failure_count = 0
+    
+    def record_failure(self):
+        """Record failed request"""
+        self.failure_count += 1
+        self.last_failure_time = datetime.utcnow()
+        
+        if self.failure_count >= self.failure_threshold:
+            self.state = "open"
+```
+
+**Refactored Model Router:**
+```python
+from typing import Optional
+import logging
+
+log = logging.getLogger(__name__)
+
+class ModelRouter:
+    """Routes generation requests to appropriate models with dynamic configuration"""
+    
+    def __init__(self, model_config: DynamicModelConfig):
+        self.model_config = model_config
+        self.circuit_breakers: Dict[str, CircuitBreaker] = {}
+    
+    async def route_request(
+        self,
+        request: GenerationRequest,
+        user_prefs: UserModelPreferences
+    ) -> ModelConfig:
+        """Route request to best available model"""
+        
+        # 1. Check user override
+        if user_prefs.preferred_model:
+            model = await self.model_config.get_model_by_name(user_prefs.preferred_model)
+            if model and self._check_circuit_breaker(model.name):
+                log.info(f"Using user-preferred model: {model.name}")
+                return model
+        
+        # 2. Get default tier models
+        tier = user_prefs.default_tier or ModelTier.BALANCED
+        models = await self.model_config.get_models_by_tier(tier)
+        
+        # 3. Filter by circuit breaker status
+        available_models = [
+            m for m in models 
+            if self._check_circuit_breaker(m.name)
+        ]
+        
+        if not available_models:
+            raise NoAvailableModelsError(f"No available models for tier {tier}")
+        
+        # 4. Select best model (by accuracy, then cost)
+        selected = max(available_models, key=lambda m: (m.accuracy, -m.cost_per_1k))
+        log.info(f"Routed to model: {selected.name} (accuracy: {selected.accuracy}, cost: ${selected.cost_per_1k}/1k)")
+        
+        return selected
+    
+    async def handle_verification_failure(
+        self,
+        original_model: ModelConfig,
+        failure_count: int,
+        user_prefs: UserModelPreferences
+    ) -> Optional[ModelConfig]:
+        """Auto-upgrade logic when verification fails"""
+        
         if failure_count >= 2 and user_prefs.auto_upgrade_enabled:
-            return self._upgrade_to_next_tier(original_model)
+            # Record failure in circuit breaker
+            self._record_failure(original_model.name)
+            
+            # Upgrade to next tier
+            upgraded_model = await self._upgrade_to_next_tier(original_model)
+            if upgraded_model:
+                log.info(f"Auto-upgrading from {original_model.name} to {upgraded_model.name}")
+                return upgraded_model
+        
+        return None
+    
+    def _check_circuit_breaker(self, model_name: str) -> bool:
+        """Check if circuit breaker allows requests to this model"""
+        cb = self.circuit_breakers.get(model_name)
+        if cb is None:
+            cb = CircuitBreaker(failure_threshold=3, timeout=60)
+            self.circuit_breakers[model_name] = cb
+        
+        return cb.is_closed()
+    
+    def _record_success(self, model_name: str):
+        """Record successful model call"""
+        if model_name in self.circuit_breakers:
+            self.circuit_breakers[model_name].record_success()
+    
+    def _record_failure(self, model_name: str):
+        """Record failed model call"""
+        cb = self.circuit_breakers.get(model_name)
+        if cb is None:
+            cb = CircuitBreaker(failure_threshold=3, timeout=60)
+            self.circuit_breakers[model_name] = cb
+        
+        cb.record_failure()
+    
+    async def _upgrade_to_next_tier(self, current_model: ModelConfig) -> Optional[ModelConfig]:
+        """Upgrade to next tier model"""
+        tier_order = [ModelTier.LOCAL, ModelTier.BALANCED, ModelTier.HIGH_ACCURACY, ModelTier.FRONTIER]
+        
+        try:
+            current_tier_idx = tier_order.index(current_model.tier)
+            if current_tier_idx < len(tier_order) - 1:
+                next_tier = tier_order[current_tier_idx + 1]
+                models = await self.model_config.get_models_by_tier(next_tier)
+                
+                # Filter by circuit breaker
+                available = [m for m in models if self._check_circuit_breaker(m.name)]
+                
+                if available:
+                    return max(available, key=lambda m: m.accuracy)
+        except ValueError:
+            pass
+        
         return None
 ```
+
+**Caching Strategy:**
+- **Cache TTL:** 60 seconds
+- **Cache Hit Rate Target:** >95%
+- **Hot-Reload:** Automatic refresh on TTL expiration
+- **Thread-Safe:** Uses asyncio.Lock for concurrent access
+- **Monitoring:** Log cache reloads and track hit rate metrics
 
 #### 2.3.2 SDO Engine (Speculative Decoding Optimization)
 
@@ -518,9 +951,362 @@ impl SMTPortfolio {
 }
 ```
 
-### 2.5 Memory Layer Design (GraphRAG)
+### 2.5 Event Processing Layer Design
 
-#### 2.5.1 Unified Memory Architecture
+#### 2.5.1 Projection Engine
+
+**Purpose:** Consumes events from NATS JetStream and updates read models in DGraph and pgvectorscale.
+
+**Technology:** Go 1.22
+
+**Interface:**
+```go
+package projection
+
+import (
+    "context"
+    "time"
+)
+
+type ProjectionEngine interface {
+    // Start begins consuming events from NATS
+    Start(ctx context.Context) error
+    
+    // Stop gracefully shuts down the engine
+    Stop(ctx context.Context) error
+    
+    // GetProjectionStatus returns the current projection lag
+    GetProjectionStatus(ctx context.Context) (*ProjectionStatus, error)
+}
+
+type ProjectionStatus struct {
+    LastProcessedSequence int64
+    CurrentLag            time.Duration
+    EventsPerSecond       float64
+    HealthStatus          string
+}
+
+type EventHandler interface {
+    Project(ctx context.Context, event Event) error
+}
+```
+
+**Implementation Design:**
+```go
+package projection
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "sync/atomic"
+    "time"
+    
+    "github.com/nats-io/nats.go"
+    "github.com/dgraph-io/dgo/v230"
+    "github.com/jackc/pgx/v5/pgxpool"
+    "github.com/redis/go-redis/v9"
+)
+
+type projectionEngine struct {
+    natsConn      *nats.Conn
+    dgraphClient  *dgo.Dgraph
+    pgPool        *pgxpool.Pool
+    redisClient   *redis.Client
+    
+    // Event handlers by type
+    handlers      map[string]EventHandler
+    
+    // Metrics
+    processedCount atomic.Int64
+    errorCount     atomic.Int64
+}
+
+func NewProjectionEngine(
+    natsConn *nats.Conn,
+    dgraphClient *dgo.Dgraph,
+    pgPool *pgxpool.Pool,
+    redisClient *redis.Client,
+) ProjectionEngine {
+    return &projectionEngine{
+        natsConn:     natsConn,
+        dgraphClient: dgraphClient,
+        pgPool:       pgPool,
+        redisClient:  redisClient,
+        handlers:     make(map[string]EventHandler),
+    }
+}
+
+func (pe *projectionEngine) Start(ctx context.Context) error {
+    // 1. Subscribe to NATS JetStream
+    sub, err := pe.natsConn.QueueSubscribe(
+        "axiom.events.*",
+        "projection-engine",
+        pe.handleEvent,
+    )
+    if err != nil {
+        return fmt.Errorf("failed to subscribe: %w", err)
+    }
+    
+    log.Println("Projection Engine started, consuming events from NATS JetStream")
+    
+    // 2. Process events with at-least-once delivery
+    // 3. Update DGraph and pgvectorscale in parallel
+    // 4. Emit sync tokens to Redis
+    // 5. Handle errors with exponential backoff
+    
+    return nil
+}
+
+func (pe *projectionEngine) handleEvent(msg *nats.Msg) {
+    ctx := context.Background()
+    
+    // 1. Parse event
+    event, err := parseEvent(msg.Data)
+    if err != nil {
+        pe.errorCount.Add(1)
+        msg.Nak()
+        return
+    }
+    
+    // 2. Route to appropriate handler
+    handler, exists := pe.handlers[event.Type]
+    if !exists {
+        log.Printf("No handler for event type: %s", event.Type)
+        msg.Ack()
+        return
+    }
+    
+    // 3. Execute projection with timeout
+    ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+    defer cancel()
+    
+    if err := handler.Project(ctx, event); err != nil {
+        pe.errorCount.Add(1)
+        msg.Nak()
+        return
+    }
+    
+    // 4. Mark sync token as complete
+    syncToken := fmt.Sprintf("sync:%s:%d", event.AggregateID, event.Sequence)
+    pe.redisClient.Set(ctx, syncToken, "complete", 5*time.Minute)
+    
+    // 5. Acknowledge message
+    msg.Ack()
+    pe.processedCount.Add(1)
+}
+
+func (pe *projectionEngine) GetProjectionStatus(ctx context.Context) (*ProjectionStatus, error) {
+    // Implementation for monitoring projection lag
+    return &ProjectionStatus{
+        LastProcessedSequence: pe.processedCount.Load(),
+        EventsPerSecond:       float64(pe.processedCount.Load()) / time.Since(startTime).Seconds(),
+        HealthStatus:          "healthy",
+    }, nil
+}
+```
+
+**Event Handler Example:**
+```go
+package projection
+
+import (
+    "context"
+    "fmt"
+    
+    "github.com/dgraph-io/dgo/v230"
+    "github.com/dgraph-io/dgo/v230/protos/api"
+    "github.com/jackc/pgx/v5/pgxpool"
+)
+
+type IntentCreatedHandler struct {
+    dgraph *dgo.Dgraph
+    pg     *pgxpool.Pool
+}
+
+func (h *IntentCreatedHandler) Project(ctx context.Context, event Event) error {
+    data := event.Data.(IntentCreatedEvent)
+    
+    // 1. Store in DGraph for relationship tracking
+    mutation := &api.Mutation{
+        SetJson: marshalIntent(data),
+    }
+    _, err := h.dgraph.NewTxn().Mutate(ctx, mutation)
+    if err != nil {
+        return fmt.Errorf("dgraph mutation failed: %w", err)
+    }
+    
+    // 2. Generate embedding and store in pgvectorscale
+    embedding := generateEmbedding(data.ParsedIntent.Summary)
+    _, err = h.pg.Exec(ctx, `
+        INSERT INTO memory_nodes (id, project_id, content, embedding, node_type)
+        VALUES ($1, $2, $3, $4, $5)
+    `, data.IntentID, data.ProjectID, data.RawIntent, embedding, "intent")
+    
+    return err
+}
+```
+
+#### 2.5.2 ConsistencyManager
+
+**Purpose:** Provides read-after-write consistency by allowing agents to wait for projection completion.
+
+**Technology:** Go 1.22 with Redis
+
+**Interface:**
+```go
+package consistency
+
+import (
+    "context"
+    "time"
+)
+
+type ConsistencyManager interface {
+    // GenerateSyncToken creates a token for tracking projection
+    GenerateSyncToken(ctx context.Context, aggregateID string, sequence int64) (string, error)
+    
+    // WaitForProjection blocks until the projection completes or times out
+    WaitForProjection(ctx context.Context, token string, timeout time.Duration) error
+    
+    // MarkProjectionComplete marks a sync token as complete
+    MarkProjectionComplete(ctx context.Context, token string) error
+}
+```
+
+**Implementation:**
+```go
+package consistency
+
+import (
+    "context"
+    "fmt"
+    "time"
+    
+    "github.com/redis/go-redis/v9"
+)
+
+type consistencyManager struct {
+    redis *redis.Client
+}
+
+func NewConsistencyManager(redis *redis.Client) ConsistencyManager {
+    return &consistencyManager{redis: redis}
+}
+
+func (cm *consistencyManager) GenerateSyncToken(
+    ctx context.Context,
+    aggregateID string,
+    sequence int64,
+) (string, error) {
+    token := fmt.Sprintf("sync:%s:%d", aggregateID, sequence)
+    
+    // Store token with "pending" status
+    err := cm.redis.Set(ctx, token, "pending", 5*time.Minute).Err()
+    if err != nil {
+        return "", fmt.Errorf("failed to create sync token: %w", err)
+    }
+    
+    return token, nil
+}
+
+func (cm *consistencyManager) WaitForProjection(
+    ctx context.Context,
+    token string,
+    timeout time.Duration,
+) error {
+    ctx, cancel := context.WithTimeout(ctx, timeout)
+    defer cancel()
+    
+    ticker := time.NewTicker(50 * time.Millisecond)
+    defer ticker.Stop()
+    
+    for {
+        select {
+        case <-ctx.Done():
+            return fmt.Errorf("timeout waiting for projection: %w", ctx.Err())
+        case <-ticker.C:
+            status, err := cm.redis.Get(ctx, token).Result()
+            if err == redis.Nil {
+                // Token expired, assume projection complete
+                return nil
+            }
+            if err != nil {
+                return fmt.Errorf("failed to check token status: %w", err)
+            }
+            
+            if status == "complete" {
+                return nil
+            }
+        }
+    }
+}
+
+func (cm *consistencyManager) MarkProjectionComplete(
+    ctx context.Context,
+    token string,
+) error {
+    return cm.redis.Set(ctx, token, "complete", 5*time.Minute).Err()
+}
+```
+
+**Usage Example in Intent Service:**
+```go
+package intent
+
+import (
+    "context"
+    "log"
+    "time"
+)
+
+func (s *IntentService) CreateIntent(ctx context.Context, req *CreateIntentRequest) (*Intent, error) {
+    // 1. Write event to event store
+    event := IntentCreatedEvent{
+        IntentID:  req.IntentID,
+        ProjectID: req.ProjectID,
+        RawIntent: req.RawIntent,
+    }
+    sequence, err := s.eventStore.AppendEvent(ctx, event)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 2. Generate sync token
+    token, err := s.consistencyMgr.GenerateSyncToken(ctx, req.IntentID, sequence)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 3. Wait for projection (with timeout)
+    err = s.consistencyMgr.WaitForProjection(ctx, token, 5*time.Second)
+    if err != nil {
+        log.Printf("Projection timeout, returning stale read warning: %v", err)
+        // Continue anyway - eventual consistency
+    }
+    
+    // 4. Read from projection (DGraph/pgvectorscale)
+    intent, err := s.memoryLayer.GetIntent(ctx, req.IntentID)
+    return intent, err
+}
+```
+
+**Decision Criteria for Using waitForProjection:**
+
+Use `waitForProjection` when:
+- User immediately queries data they just created/updated
+- Consistency is critical for the operation (e.g., financial transactions)
+- The operation is part of a multi-step workflow requiring fresh data
+
+Skip `waitForProjection` when:
+- Reading historical data
+- Performing background analytics
+- User is browsing/exploring (not expecting immediate consistency)
+- Performance is more critical than consistency
+
+### 2.6 Memory Layer Design (GraphRAG)
+
+#### 2.6.1 Unified Memory Architecture
 
 **Technology Stack:**
 - pgvectorscale (PostgreSQL extension) for vector operations
@@ -559,7 +1345,7 @@ class GraphRAGMemory:
     async def unified_search(self,
                            query: str,
                            project_id: str,
-                           similarity_threshold: float = 0.8,
+                           similarity_threshold: float = 0.92,
                            max_depth: int = 3) -> List[MemoryNode]:
         # 1. Semantic search with pgvectorscale
         query_embedding = await self.generate_embedding(query)
@@ -868,27 +1654,310 @@ CREATE TABLE ivcus (
 #### 3.2.2 Proof Certificates Table
 
 ```sql
+-- Proof type enum
+CREATE TYPE proof_type_enum AS ENUM ('tier0_syntax', 'tier1_type', 'tier2_test', 'tier3_formal');
+
 CREATE TABLE proof_certificates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ivcu_id UUID NOT NULL REFERENCES ivcus(id),
+    intent_id UUID NOT NULL,  -- Traceability to originating intent
     proof_type proof_type_enum NOT NULL,
-    assertions JSONB NOT NULL,
-    proof_data BYTEA NOT NULL,
+    
+    -- Cryptographic validation fields
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    ast_hash VARCHAR(64) NOT NULL,  -- SHA-256 hash of AST
+    code_hash VARCHAR(64) NOT NULL,  -- SHA-256 hash of code
+    hash_chain VARCHAR(128) NOT NULL,  -- Chain of hashes for integrity
+    
+    -- Verification data
+    assertions JSONB NOT NULL,  -- Formal assertions verified
+    proof_data BYTEA NOT NULL,  -- Serialized proof
+    verifier_signatures JSONB NOT NULL,  -- Array of cryptographic signatures
     verifier_version VARCHAR(50) NOT NULL,
-    hash_chain VARCHAR(128) NOT NULL,
-    signature BYTEA NOT NULL,
+    
+    -- Metadata
+    confidence_score DECIMAL(3,2) CHECK (confidence_score BETWEEN 0 AND 1),
+    verification_duration_ms INTEGER,
+    
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     
     -- Ensure one proof per IVCU per type
     UNIQUE(ivcu_id, proof_type)
 );
 
--- Index for proof verification queries
+-- Indexes for proof verification queries
 CREATE INDEX proof_certificates_hash_idx ON proof_certificates (hash_chain);
+CREATE INDEX proof_certificates_intent_idx ON proof_certificates (intent_id);
 CREATE INDEX proof_certificates_type_idx ON proof_certificates (proof_type, created_at);
+CREATE INDEX proof_certificates_ast_hash_idx ON proof_certificates (ast_hash);
 ```
 
-#### 3.2.3 Budget and Cost Tracking
+**Proof Certificate Validation Algorithm:**
+```go
+package verification
+
+import (
+    "crypto/sha256"
+    "encoding/hex"
+    "fmt"
+)
+
+type ProofCertificate struct {
+    ID                   string
+    IvcuID               string
+    IntentID             string
+    ProofType            string
+    Timestamp            time.Time
+    ASTHash              string
+    CodeHash             string
+    HashChain            string
+    Assertions           map[string]interface{}
+    ProofData            []byte
+    VerifierSignatures   []VerifierSignature
+    VerifierVersion      string
+    ConfidenceScore      float64
+}
+
+type VerifierSignature struct {
+    VerifierID  string
+    Signature   []byte
+    PublicKey   []byte
+    Algorithm   string  // e.g., "Ed25519", "RSA-PSS"
+}
+
+func ValidateProofCertificate(cert *ProofCertificate, code string, ast []byte) error {
+    // 1. Verify code hash
+    codeHashComputed := sha256.Sum256([]byte(code))
+    if hex.EncodeToString(codeHashComputed[:]) != cert.CodeHash {
+        return fmt.Errorf("code hash mismatch")
+    }
+    
+    // 2. Verify AST hash
+    astHashComputed := sha256.Sum256(ast)
+    if hex.EncodeToString(astHashComputed[:]) != cert.ASTHash {
+        return fmt.Errorf("AST hash mismatch")
+    }
+    
+    // 3. Verify hash chain
+    chainInput := fmt.Sprintf("%s:%s:%s", cert.IntentID, cert.CodeHash, cert.ASTHash)
+    chainComputed := sha256.Sum256([]byte(chainInput))
+    if hex.EncodeToString(chainComputed[:]) != cert.HashChain {
+        return fmt.Errorf("hash chain verification failed")
+    }
+    
+    // 4. Verify signatures
+    for _, sig := range cert.VerifierSignatures {
+        if err := verifySignature(sig, cert.HashChain); err != nil {
+            return fmt.Errorf("signature verification failed for %s: %w", sig.VerifierID, err)
+        }
+    }
+    
+    return nil
+}
+```
+
+#### 3.2.3 UserSkillProfile Table (Adaptive Scaffolding)
+
+```sql
+-- Skill level enum
+CREATE TYPE skill_level_enum AS ENUM ('beginner', 'intermediate', 'advanced');
+
+CREATE TABLE user_skill_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    project_id UUID REFERENCES projects(id),  -- NULL for global profile
+    
+    -- Skill assessment
+    skill_level skill_level_enum DEFAULT 'beginner',
+    confidence_score DECIMAL(3,2) DEFAULT 0.5 CHECK (confidence_score BETWEEN 0 AND 1),
+    
+    -- Interaction metrics
+    total_intents_created INTEGER DEFAULT 0,
+    successful_generations INTEGER DEFAULT 0,
+    failed_generations INTEGER DEFAULT 0,
+    refinements_count INTEGER DEFAULT 0,
+    
+    -- Complexity metrics
+    avg_intent_complexity DECIMAL(3,2) DEFAULT 0,  -- 0-1 scale
+    max_intent_complexity DECIMAL(3,2) DEFAULT 0,
+    
+    -- Feature usage tracking
+    features_used JSONB DEFAULT '{}',  -- {"counterfactual": 5, "proof_export": 2, ...}
+    advanced_features_count INTEGER DEFAULT 0,
+    
+    -- Temporal tracking
+    first_interaction_at TIMESTAMP WITH TIME ZONE,
+    last_interaction_at TIMESTAMP WITH TIME ZONE,
+    days_active INTEGER DEFAULT 0,
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    UNIQUE(user_id, project_id)
+);
+
+-- Indexes for skill queries
+CREATE INDEX user_skill_profiles_user_idx ON user_skill_profiles (user_id);
+CREATE INDEX user_skill_profiles_level_idx ON user_skill_profiles (skill_level);
+CREATE INDEX user_skill_profiles_project_idx ON user_skill_profiles (project_id) WHERE project_id IS NOT NULL;
+```
+
+**Skill Level Calculation Heuristic:**
+```go
+package adaptive
+
+import (
+    "math"
+)
+
+type SkillCalculator struct{}
+
+type SkillMetrics struct {
+    TotalIntents         int
+    SuccessfulGens       int
+    FailedGens           int
+    RefinementsCount     int
+    AvgIntentComplexity  float64
+    AdvancedFeaturesUsed int
+    DaysActive           int
+}
+
+func (sc *SkillCalculator) CalculateSkillLevel(metrics SkillMetrics) (string, float64) {
+    // Weighted scoring system
+    var score float64
+    
+    // 1. Success rate (weight: 0.3)
+    if metrics.TotalIntents > 0 {
+        successRate := float64(metrics.SuccessfulGens) / float64(metrics.TotalIntents)
+        score += successRate * 0.3
+    }
+    
+    // 2. Intent complexity (weight: 0.25)
+    score += metrics.AvgIntentComplexity * 0.25
+    
+    // 3. Advanced feature usage (weight: 0.25)
+    // Normalize to 0-1 scale (assume 20+ uses = expert)
+    advancedScore := math.Min(float64(metrics.AdvancedFeaturesUsed)/20.0, 1.0)
+    score += advancedScore * 0.25
+    
+    // 4. Refinement efficiency (weight: 0.1)
+    // Lower refinements per intent = higher skill
+    if metrics.TotalIntents > 0 {
+        refinementRatio := float64(metrics.RefinementsCount) / float64(metrics.TotalIntents)
+        refinementScore := math.Max(0, 1.0-(refinementRatio/3.0))  // 3+ refinements = 0
+        score += refinementScore * 0.1
+    }
+    
+    // 5. Experience (weight: 0.1)
+    // Normalize days active (assume 90+ days = expert)
+    experienceScore := math.Min(float64(metrics.DaysActive)/90.0, 1.0)
+    score += experienceScore * 0.1
+    
+    // Determine skill level
+    var level string
+    if score < 0.4 {
+        level = "beginner"
+    } else if score < 0.7 {
+        level = "intermediate"
+    } else {
+        level = "advanced"
+    }
+    
+    return level, score
+}
+```
+
+**UI Complexity Mapping:**
+```typescript
+// apps/web-next/src/lib/adaptive-ui.ts
+
+export type SkillLevel = 'beginner' | 'intermediate' | 'advanced';
+
+export interface FeatureVisibility {
+  feature: string;
+  minSkillLevel: SkillLevel;
+  description: string;
+}
+
+export const FEATURE_VISIBILITY_MATRIX: FeatureVisibility[] = [
+  // Beginner features (always visible)
+  { feature: 'intent_canvas', minSkillLevel: 'beginner', description: 'Basic intent input' },
+  { feature: 'simple_review', minSkillLevel: 'beginner', description: 'Summary view only' },
+  { feature: 'cost_display', minSkillLevel: 'beginner', description: 'Simple cost indicator' },
+  
+  // Intermediate features
+  { feature: 'model_selection', minSkillLevel: 'intermediate', description: 'Choose specific models' },
+  { feature: 'detailed_review', minSkillLevel: 'intermediate', description: 'Detail view with metrics' },
+  { feature: 'verification_breakdown', minSkillLevel: 'intermediate', description: 'Tier-by-tier results' },
+  { feature: 'refinement_suggestions', minSkillLevel: 'intermediate', description: 'AI-powered suggestions' },
+  { feature: 'history_view', minSkillLevel: 'intermediate', description: 'Intent history' },
+  
+  // Advanced features
+  { feature: 'counterfactual_explorer', minSkillLevel: 'advanced', description: 'What-if scenarios' },
+  { feature: 'proof_certificate_export', minSkillLevel: 'advanced', description: 'Export cryptographic proofs' },
+  { feature: 'raw_code_view', minSkillLevel: 'advanced', description: 'Direct code editing' },
+  { feature: 'advanced_constraints', minSkillLevel: 'advanced', description: 'Custom constraint tagging' },
+  { feature: 'speculation_controls', minSkillLevel: 'advanced', description: 'SDO strategy selection' },
+  { feature: 'budget_management', minSkillLevel: 'advanced', description: 'Detailed budget controls' },
+  { feature: 'team_collaboration', minSkillLevel: 'advanced', description: 'Real-time collaboration' },
+  { feature: 'api_access', minSkillLevel: 'advanced', description: 'REST/gRPC API keys' },
+];
+
+export class AdaptiveUIController {
+  getVisibleFeatures(skillLevel: SkillLevel): string[] {
+    const skillOrder: SkillLevel[] = ['beginner', 'intermediate', 'advanced'];
+    const userSkillIndex = skillOrder.indexOf(skillLevel);
+    
+    return FEATURE_VISIBILITY_MATRIX
+      .filter(f => skillOrder.indexOf(f.minSkillLevel) <= userSkillIndex)
+      .map(f => f.feature);
+  }
+  
+  shouldShowFeature(feature: string, skillLevel: SkillLevel): boolean {
+    const featureConfig = FEATURE_VISIBILITY_MATRIX.find(f => f.feature === feature);
+    if (!featureConfig) return false;
+    
+    const skillOrder: SkillLevel[] = ['beginner', 'intermediate', 'advanced'];
+    return skillOrder.indexOf(skillLevel) >= skillOrder.indexOf(featureConfig.minSkillLevel);
+  }
+  
+  // Progressive disclosure: promote features when user is ready
+  shouldPromoteFeature(
+    feature: string,
+    currentSkillLevel: SkillLevel,
+    confidenceScore: float
+  ): boolean {
+    const featureConfig = FEATURE_VISIBILITY_MATRIX.find(f => f.feature === feature);
+    if (!featureConfig) return false;
+    
+    const skillOrder: SkillLevel[] = ['beginner', 'intermediate', 'advanced'];
+    const currentIndex = skillOrder.indexOf(currentSkillLevel);
+    const requiredIndex = skillOrder.indexOf(featureConfig.minSkillLevel);
+    
+    // Promote if user is one level below and confidence is high
+    return (requiredIndex === currentIndex + 1) && (confidenceScore > 0.65);
+  }
+}
+```
+
+**Progressive Disclosure Strategy:**
+
+1. **Beginner → Intermediate Transition** (confidence > 0.4):
+   - Show tooltip: "You're ready for model selection!"
+   - Highlight new features with badges
+   - Provide guided tour of intermediate features
+
+2. **Intermediate → Advanced Transition** (confidence > 0.7):
+   - Unlock counterfactual explorer with tutorial
+   - Enable proof certificate export
+   - Show API access documentation
+
+3. **Feature Promotion Logic**:
+   - Track feature discovery events
+   - Show contextual hints when user might benefit
+   - Never force features, always allow dismissal
+
+#### 3.2.4 Budget and Cost Tracking
 
 ```sql
 CREATE TABLE budgets (
@@ -1471,7 +2540,30 @@ func (a *AuthorizationService) HasPermission(user *User, permission Permission, 
 ```
 ### 5.2 AI Security Gateway
 
-#### 5.2.1 Input Sanitization
+#### 5.2.1 RBAC Interceptor (Authorization Enforcement)
+
+**Purpose:** Enforce role-based access control at the gRPC layer before requests reach core services.
+
+**Technology:** Go 1.22 with gRPC interceptors
+
+**Performance Target:** Authorization check latency <10ms for 95% of requests
+
+**Permission Mapping Table:**
+
+| gRPC Method | Required Permission | Resource Level |
+|-------------|-------------------|----------------|
+| `/axiom.generation.v1.GenerationService/GenerateStream` | `ivcu:create` | Project |
+| `/axiom.generation.v1.GenerationService/GetGeneration` | `ivcu:read` | Project |
+| `/axiom.intent.v1.IntentService/CreateIntent` | `ivcu:create` | Project |
+| `/axiom.intent.v1.IntentService/GetIntent` | `ivcu:read` | Project |
+| `/axiom.intent.v1.IntentService/UpdateIntent` | `ivcu:update` | Project |
+| `/axiom.intent.v1.IntentService/DeleteIntent` | `ivcu:delete` | Project |
+| `/axiom.project.v1.ProjectService/CreateProject` | `project:write` | Organization |
+| `/axiom.project.v1.ProjectService/DeleteProject` | `project:delete` | Organization |
+
+**Implementation:** See Section 2.2.3 for complete RBAC Interceptor implementation with gRPC integration.
+
+#### 5.2.2 Input Sanitization
 
 ```python
 import re
