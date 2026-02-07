@@ -125,7 +125,7 @@ class VerificationOrchestra:
             
         # Run Tier 3 if requested and passed previous tiers
         if run_tier3 and result.passed:
-            tier3_results = await self.tier3.verify_all(code, language)
+            tier3_results = await self.tier3.verify_all(code, language, contracts)
             for r in tier3_results:
                 result.add_result(r)
         elif run_tier3 and not result.passed:

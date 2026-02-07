@@ -8,10 +8,16 @@ import uuid
 import time
 import json
 import logging
+import asyncio
 
 # Import modules
 from sdo import SDO, SDOStatus, Candidate
 from llm import LLMService
+
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv('../../.env')
+
 from memory import MemoryService
 from sdo_engine import SDOEngine
 from economics import EconomicsService, CostEstimate
@@ -19,6 +25,8 @@ from verification import VerificationOrchestra, VerificationResult
 from knowledge import KnowledgeService
 from database import DatabaseService
 import eventbus
+from graph_memory import get_graph_memory
+
 
 # OpenTelemetry Imports
 from opentelemetry import trace
@@ -34,10 +42,22 @@ from temporalio.client import Client as TemporalClient
 llm_service = LLMService()
 memory_service = MemoryService(embed_fn=llm_service.embed_text)
 knowledge_service = KnowledgeService(memory_service)
-sdo_engine = SDOEngine(llm_service, knowledge_service)
+knowledge_service = KnowledgeService(memory_service)
 economics_service = EconomicsService()
 verification_orchestra = VerificationOrchestra(llm_service)
 database_service = DatabaseService()
+verification_orchestra = VerificationOrchestra(llm_service)
+database_service = DatabaseService()
+# Initialize SDOEngine with stream callback (defined later, so we might need to set it post-init or move def up)
+# Since def is below, we can assign it later or move init down.
+# Moving init down is safer but disruptive.
+# I will use a lambda or wrapper, OR just set it after definition.
+# Better: Just set it in valid scope.
+# Actually, `event_stream_callback` is defined AFTER this block in my previous edit.
+# So I need to set it inside `lifespan` or move `sdo_engine` init down.
+# Let's set it in lifespan startup.
+sdo_engine = SDOEngine(llm_service, knowledge_service, database_service=database_service)
+
 
 # Global Temporal Client
 temporal_client = None
@@ -54,6 +74,14 @@ def init_telemetry():
     except Exception as e:
         print(f"Failed to initialize telemetry: {e}")
 
+async def event_stream_callback(event_type: str, data: Dict[str, Any]):
+    """
+    Callback for SDOEngine to stream events.
+    """
+    # For now, just log or print. 
+    # In future, this should push to NATS subject or SSE queue.
+    print(f"STREAM EVENT [{event_type}]: {data}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize services on startup, cleanup on shutdown."""
@@ -62,27 +90,45 @@ async def lifespan(app: FastAPI):
     
     # Initialize Telemetry
     init_telemetry()
+
+    print(f"DEBUG: QDRANT_URL = {os.getenv('QDRANT_URL')}")
+    print(f"DEBUG: TEMPORAL_URL = {os.getenv('TEMPORAL_URL')}")
+    print(f"DEBUG: NATS_URL = {os.getenv('NATS_URL')}")
+    from memory.vector import MemoryConfig
+    print(f"DEBUG: MemoryConfig.QDRANT_URL = {MemoryConfig.QDRANT_URL}")
     
-    # Initialize NATS
-    await eventbus.init_nats()
+    # Initialize NATS (Non-blocking)
+    try:
+        await asyncio.wait_for(eventbus.init_nats(), timeout=10.0)
+    except Exception as e:
+        print(f"WARN: NATS initialization failed/timed out: {e}")
     
     # Initialize Temporal
     global temporal_client
     try:
-        temporal_client = await TemporalClient.connect("axiom-temporal:7233")
+        temporal_host = os.getenv("TEMPORAL_URL", "axiom-temporal:7233")
+        temporal_client = await asyncio.wait_for(TemporalClient.connect(temporal_host), timeout=10.0)
         print("Connected to Temporal")
     except Exception as e:
-        print(f"Failed to connect to Temporal: {e}")
+        print(f"WARN: Temporal connection failed/timed out: {e}")
 
     # Initialize Memory
-    memory_initialized = await memory_service.initialize()
-    if memory_initialized:
-        print("Memory service connected to Qdrant")
-    else:
-        print("Memory service running without Qdrant (fallback mode)")
+    memory_initialized = False
+    try:
+        memory_initialized = await asyncio.wait_for(memory_service.initialize(), timeout=10.0)
+        if memory_initialized:
+            print("Memory service connected to Qdrant")
+        else:
+            print("Memory service running without Qdrant (fallback mode)")
+    except Exception as e:
+         print(f"WARN: Memory service initialization failed/timed out: {e}")
         
     # Initialize Database
-    db_initialized = await database_service.initialize()
+    db_initialized = False
+    try:
+        db_initialized = await asyncio.wait_for(database_service.initialize(), timeout=10.0)
+    except Exception as e:
+        print(f"WARN: Database initialization failed/timed out: {e}")
     if db_initialized:
         print("Database service connected to PostgreSQL")
     else:
@@ -91,7 +137,14 @@ async def lifespan(app: FastAPI):
     print("SDO Engine ready")
     print("Economics service ready")
     print("Verification Orchestra ready")
+    print("Verification Orchestra ready")
+    
+    # Initialize Streaming
+    sdo_engine.stream_callback = event_stream_callback
+    print("Event Streaming initialized")
+    
     yield
+
     # Shutdown
     print("Shutting down AXIOM AI Service...")
     await database_service.close()
@@ -140,25 +193,52 @@ class GenerateResponse(BaseModel):
     sdo_id: str
     reasoning: Optional[str] = None
 
+# ============================================================================
+# Graph Visualization Endpoint (Phase B)
+# ============================================================================
+
+@app.get("/api/v1/graph")
+async def get_graph(
+    project_id: Optional[str] = None,
+    limit: int = 200
+):
+    """
+    Get full knowledge graph for visualization.
+    Proxies to GraphMemoryStore.
+    """
+    if not database_service.pool:
+         # Fallback or error if DB not ready
+         raise HTTPException(status_code=503, detail="Database not initialized")
+         
+    graph_store = await get_graph_memory(database_service.pool)
+    result = await graph_store.get_graph(project_id=project_id, limit=limit)
+    return result.to_dict()
+
+
 @app.get("/health")
 async def health():
     """Health check endpoint"""
-    memory_health = memory_service.health_check()
-    db_status = "connected" if database_service.pool else "disconnected"
-    
-    # Check LLM providers
-    providers_status = llm_service.get_available_providers() if hasattr(llm_service, 'get_available_providers') else {}
-    default_provider = llm_service.default_provider if hasattr(llm_service, 'default_provider') else "mock"
-    
-    return {
-        "status": "healthy",
-        "service": "axiom-ai",
-        "version": "0.5.0",
-        "database": db_status,
-        "llm_providers": providers_status,
-        "default_llm_provider": default_provider,
-        "memory": memory_health
-    }
+    try:
+        memory_health = await memory_service.health_check()
+        db_status = "connected" if database_service.pool else "disconnected"
+        
+        # Check LLM providers
+        providers_status = llm_service.get_available_providers() if hasattr(llm_service, 'get_available_providers') else {}
+        default_provider = llm_service.default_provider if hasattr(llm_service, 'default_provider') else "mock"
+        
+        return {
+            "status": "healthy",
+            "service": "axiom-ai",
+            "version": "0.5.0",
+            "database": db_status,
+            "llm_providers": providers_status,
+            "default_llm_provider": default_provider,
+            "memory": memory_health
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/metrics")
 async def metrics():
@@ -265,6 +345,67 @@ async def generate_code(request: GenerateRequest):
         sdo_id=sdo.id,
         reasoning=f"Generated {sdo.language} code. Latency: {latency:.3f}s"
     )
+
+class GraphNode(BaseModel):
+    id: str
+    label: str
+    description: Optional[str] = None
+    confidence: float
+    status: str
+    constraints: List[str]
+    complexity: str = "medium"
+
+class GraphEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    type: str = "proof"
+    status: str
+
+class GraphResponse(BaseModel):
+    nodes: List[GraphNode]
+    edges: List[GraphEdge]
+
+@app.get("/api/v1/graph", response_model=GraphResponse)
+async def get_sde_graph():
+    """
+    Get the semantic graph of all SDOs.
+    """
+    sdos = await database_service.get_all_sdos(limit=100)
+    
+    nodes = []
+    for sdo in sdos:
+        constraints = []
+        if sdo.get('parsed_intent') and isinstance(sdo['parsed_intent'], dict):
+            constraints = sdo['parsed_intent'].get('constraints', [])
+        
+        # Determine status mapping
+        status = sdo.get('status', 'draft')
+        if status == 'generated': status = 'generating' # Map legacy status
+        if status == 'verified' and sdo.get('confidence', 0) < 0.8: status = 'failed' # Heuristic
+
+        # Determine complexity (heuristic based on code length/constraints)
+        complexity = "medium"
+        if constraints and len(constraints) > 5: complexity = "high"
+        if constraints and len(constraints) < 2: complexity = "low"
+
+        nodes.append(GraphNode(
+            id=sdo['id'],
+            label=sdo.get('raw_intent', 'Untitled Intent')[:30], # Truncate for label
+            description=sdo.get('raw_intent'),
+            confidence=sdo.get('confidence', 0.5),
+            status=status.lower(),
+            constraints=[str(c) for c in constraints][:3], # Top 3 constraints
+            complexity=complexity
+        ))
+    
+    # Mock Edges for now (Sequential chain based on time)
+    edges = []
+    # If we had dependency data, we'd add it here.
+    # For demo, let's leave edges empty or infer sequence? 
+    # Empty edges is safer than fake ones.
+    
+    return GraphResponse(nodes=nodes, edges=edges)
 
 # ============================================================================
 # Memory Endpoints
@@ -700,6 +841,20 @@ async def get_sdo_history(sdo_id: str = Path(..., description="SDO ID")):
     )
 
 
+@app.post("/sdo/{sdo_id}/snapshot")
+async def snapshot_sdo(sdo_id: str = Path(..., description="SDO ID")):
+    """
+    Manually trigger a snapshot of the current SDO state.
+    """
+    sdo_data = await database_service.get_sdo(sdo_id)
+    if not sdo_data:
+        raise HTTPException(status_code=404, detail="SDO not found")
+        
+    # In a real event-sourced system, this might create a tagged version.
+    # For now, we verify it exists and return success as it's already auto-saved.
+    return {"status": "success", "message": f"Snapshot created for {sdo_id}", "timestamp": time.time()}
+
+
 @app.post("/history/{sdo_id}/restore/{snapshot_id}")
 async def restore_snapshot(
     sdo_id: str = Path(..., description="SDO ID"),
@@ -758,24 +913,89 @@ class LearningResponse(BaseModel):
 async def process_learning_event(event: LearningEvent):
     """
     Process a learning event and update user skills.
-    Currently a simple heuristic based on event type.
     """
-    # Simple heuristic logic
-    skills_update = {}
+    # Map event type to domain
+    domain = "general"
+    delta = 0
     
     if event.event_type == "code_accepted":
-        # Boost verification skill
-        skills_update["verification"] = 1
+        domain = "verification"
+        delta = 1
     elif event.event_type == "refinement_loop":
-        # Boost intent expression if refinement led to success
-        skills_update["intent_expression"] = 1
+        domain = "intent_expression"
+        delta = 1
     elif event.event_type == "error_fixed":
-        skills_update["debugging"] = 1
+        domain = "debugging"
+        delta = 1
+    elif event.event_type == "manual_correction":
+        domain = "architectural_reasoning"
+        delta = 2
         
+    if delta > 0:
+        await sdo_engine.learner.update_skill(event.user_id, domain, delta)
+        
+    # Get updated profile
+    profile = await sdo_engine.learner.get_profile(event.user_id)
+    skills = profile.get("skills", {})
+
     return LearningResponse(
         user_id=event.user_id,
-        updated_skills=skills_update,
-        message="Event processed"
+        updated_skills=skills,
+        message=f"Event processed. {domain} +{delta}"
+    )
+
+@app.get("/learner/profile/{user_id}")
+async def get_learner_profile(user_id: str):
+    """
+    Get full learner profile.
+    """
+    return await sdo_engine.learner.get_profile(user_id)
+
+# ============================================================================
+# Counterfactual Explorer Endpoints (Phase 3)
+# ============================================================================
+
+class CounterfactualRequest(BaseModel):
+    base_sdo_id: str
+    prompt: str
+    user_id: Optional[str] = "analytical_user"
+
+@app.post("/generate/counterfactual", response_model=ParallelGenerateResponse)
+async def generate_counterfactual(request: CounterfactualRequest):
+    """
+    Generate a counterfactual variant of an existing SDO.
+    """
+    # Verify base SDO exists
+    base_sdo_data = await database_service.get_sdo(request.base_sdo_id)
+    if not base_sdo_data:
+        raise HTTPException(status_code=404, detail="Base SDO not found")
+    
+    base_sdo = SDO(**base_sdo_data)
+    
+    # Fork and generate
+    variant_sdo = await sdo_engine.generate_counterfactual(base_sdo, request.prompt)
+    
+    # response formatted similar to adaptive generation
+    return ParallelGenerateResponse(
+        sdo_id=variant_sdo.id,
+        status=variant_sdo.status.value,
+        candidates=[
+             CandidateResponse(
+                id=c.id,
+                code=c.code,
+                confidence=c.confidence,
+                verification_score=c.verification_score,
+                verification_passed=c.verification_passed,
+                verification_result=c.verification_result,
+                pruned=c.pruned
+            )
+            for c in variant_sdo.candidates
+        ],
+        selected_candidate_id=variant_sdo.selected_candidate_id,
+        selected_code=variant_sdo.code,
+        confidence=variant_sdo.confidence,
+        cost_usd=0.01,
+        retrieved_context=variant_sdo.retrieved_context
     )
 
 # ============================================================================
@@ -1182,6 +1402,29 @@ async def get_public_key():
     }
 
 
+
+
+class FeedbackRequest(BaseModel):
+    sdo_id: str
+    original_code: str
+    corrected_code: str
+    intent: str
+
+@app.post("/learning/feedback")
+async def submit_feedback(request: FeedbackRequest):
+    """
+    Submit feedback to the LearnerModel (Adaptive Learning Phase E).
+    """
+    try:
+        correction = await sdo_engine.learner.digest_feedback(
+            ivcu_id=request.sdo_id,
+            intent=request.intent,
+            original_code=request.original_code,
+            corrected_code=request.corrected_code
+        )
+        return {"success": True, "message": "Feedback digested", "lesson": correction.diff_summary}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

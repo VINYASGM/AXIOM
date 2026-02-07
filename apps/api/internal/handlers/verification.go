@@ -1,13 +1,13 @@
 package handlers
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/axiom/api/internal/database"
 	"github.com/axiom/api/internal/models"
+	"github.com/axiom/api/internal/verifier"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -15,14 +15,20 @@ import (
 
 // VerificationHandler handles verification endpoints
 type VerificationHandler struct {
-	db           *database.Postgres
-	aiServiceURL string
-	logger       *zap.Logger
+	db             *database.Postgres
+	aiServiceURL   string
+	verifierClient verifier.Client
+	logger         *zap.Logger
 }
 
 // NewVerificationHandler creates a new verification handler
-func NewVerificationHandler(db *database.Postgres, aiServiceURL string, logger *zap.Logger) *VerificationHandler {
-	return &VerificationHandler{db: db, aiServiceURL: aiServiceURL, logger: logger}
+func NewVerificationHandler(db *database.Postgres, aiServiceURL string, verifierClient verifier.Client, logger *zap.Logger) *VerificationHandler {
+	return &VerificationHandler{
+		db:             db,
+		aiServiceURL:   aiServiceURL,
+		verifierClient: verifierClient,
+		logger:         logger,
+	}
 }
 
 // VerifyRequest is the request body for verification
@@ -50,35 +56,25 @@ func (h *VerificationHandler) Verify(c *gin.Context) {
 
 	startTime := time.Now()
 
-	// Call AI Service
-	aiReq := map[string]interface{}{
-		"code":      req.Code,
-		"language":  "python", // Defaulting to python for now, ideally should come from IVCU
-		"run_tier2": true,
-	}
-	jsonBody, _ := json.Marshal(aiReq)
-
-	resp, err := http.Post(h.aiServiceURL+"/verify", "application/json", bytes.NewBuffer(jsonBody))
+	// Call Verifier Service (Rust)
+	passed, confidence, err := h.verifierClient.Verify(c.Request.Context(), req.Code, "python")
 	if err != nil {
-		h.logger.Error("failed to call AI service for verification", zap.Error(err))
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "AI service verification failed"})
+		h.logger.Error("failed to call Verifier service", zap.Error(err))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Verifier service unavailable"})
 		return
 	}
 
-	var aiResult struct {
+	// Construct Result (Simplified for integration check)
+	aiResult := struct {
 		Passed          bool                     `json:"passed"`
 		Confidence      float64                  `json:"confidence"`
 		VerifierResults []map[string]interface{} `json:"verifier_results"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&aiResult); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode AI response"})
-		return
+	}{
+		Passed:     passed,
+		Confidence: confidence,
+		VerifierResults: []map[string]interface{}{
+			{"name": "rust_verifier", "passed": passed, "score": confidence},
+		},
 	}
 
 	duration := time.Since(startTime)

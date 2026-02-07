@@ -162,12 +162,23 @@ class DatabaseService:
             );
         """)
         
-        # Add org_id to SDOs for multi-tenancy
         try:
+            # Add org_id to SDOs for multi-tenancy
             await conn.execute("ALTER TABLE sdos ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organizations(id);")
             await conn.execute("ALTER TABLE sdos ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id);")
         except Exception:
             pass
+
+        # Learner Model Table (Phase 3)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS learner_models (
+                user_id TEXT PRIMARY KEY, 
+                skills JSONB DEFAULT '{}'::jsonb,
+                learning_style JSONB DEFAULT '{}'::jsonb,
+                history JSONB DEFAULT '[]'::jsonb,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
 
 
     async def save_sdo(self, sdo_data: Dict[str, Any]):
@@ -280,6 +291,83 @@ class DatabaseService:
             
             sdo['candidates'] = candidates
             return sdo
+
+    async def get_all_sdos(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Retrieve all SDOs (lightweight list).
+        """
+        if not self.pool:
+            return []
+
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT 
+                    id::text, raw_intent, parsed_intent, language, status, confidence, 
+                    selected_candidate_id, meta,
+                    EXTRACT(EPOCH FROM updated_at) as updated_at
+                FROM sdos
+                ORDER BY updated_at DESC
+                LIMIT $1
+            """, limit)
+            
+            results = []
+            for row in rows:
+                sdo = dict(row)
+                if sdo['parsed_intent']:
+                    sdo['parsed_intent'] = json.loads(sdo['parsed_intent'])
+                if sdo['meta']:
+                    sdo['meta'] = json.loads(sdo['meta'])
+                results.append(sdo)
+            return results
+
+    async def save_learner_profile(self, profile: Dict[str, Any]):
+        """
+        Upsert Learner Profile.
+        """
+        if not self.pool:
+            return
+
+        async with self.pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO learner_models (user_id, skills, learning_style, history, updated_at)
+                VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    skills = EXCLUDED.skills,
+                    learning_style = EXCLUDED.learning_style,
+                    history = EXCLUDED.history,
+                    updated_at = CURRENT_TIMESTAMP;
+            """,
+            profile['user_id'],
+            json.dumps(profile.get('skills', {})),
+            json.dumps(profile.get('learning_style', {})),
+            json.dumps(profile.get('history', []))
+            )
+
+    async def get_learner_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve Learner Profile.
+        """
+        if not self.pool:
+            return None
+
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT user_id, skills, learning_style, history, EXTRACT(EPOCH FROM updated_at) as updated_at
+                FROM learner_models WHERE user_id = $1
+            """, user_id)
+            
+            if not row:
+                return None
+            
+            profile = dict(row)
+            if profile['skills']:
+                profile['skills'] = json.loads(profile['skills'])
+            if profile['learning_style']:
+                profile['learning_style'] = json.loads(profile['learning_style'])
+            if profile['history']:
+                profile['history'] = json.loads(profile['history'])
+            
+            return profile
 
     async def close(self):
         """Close connection pool."""

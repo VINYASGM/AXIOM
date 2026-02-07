@@ -15,8 +15,10 @@ This design document specifies how to refine the AXIOM platform's design.md and 
 3. [Components and Interfaces](#3-components-and-interfaces)
 4. [Data Models](#4-data-models)
 5. [Correctness Properties](#5-correctness-properties)
-6. [Error Handling](#6-error-handling)
-7. [Testing Strategy](#7-testing-strategy)
+6. [Security Architecture](#6-security-architecture)
+7. [Migration Strategy](#7-migration-strategy)
+8. [Error Handling](#8-error-handling)
+9. [Testing Strategy](#9-testing-strategy)
 
 ---
 
@@ -1442,9 +1444,275 @@ For this design refinement, properties focus on documentation completeness and c
 
 
 
-## 6. Error Handling
+## 6. Security Architecture
 
-### 6.1 Documentation Errors
+### 6.1 Authentication & Authorization
+
+**JWT-based Authentication**:
+```go
+type JWTClaims struct {
+    Sub      string   `json:"sub"`       // User ID
+    Email    string   `json:"email"`
+    Role     string   `json:"role"`      // admin, developer, viewer
+    OrgID    string   `json:"org_id"`
+    Projects []string `json:"projects"`  // Accessible project IDs
+    Exp      int64    `json:"exp"`
+    Iat      int64    `json:"iat"`
+}
+
+// Token validation with RS256
+func (v *JWTValidator) Validate(token string) (*JWTClaims, error) {
+    parsed, err := jwt.ParseWithClaims(token, &JWTClaims{}, func(t *jwt.Token) (interface{}, error) {
+        return v.publicKey, nil
+    })
+    if err != nil || !parsed.Valid {
+        return nil, ErrInvalidToken
+    }
+    return parsed.Claims.(*JWTClaims), nil
+}
+```
+
+**Permission Model**:
+| Role | Project Read | Project Write | IVCU Create | Admin |
+|------|--------------|---------------|-------------|-------|
+| viewer | ✓ | ✗ | ✗ | ✗ |
+| developer | ✓ | ✓ | ✓ | ✗ |
+| admin | ✓ | ✓ | ✓ | ✓ |
+
+### 6.2 Encryption
+
+**Data at Rest**:
+- PostgreSQL: TDE (Transparent Data Encryption) with AES-256
+- Redis: Encrypted RDB snapshots
+- File storage: Server-side encryption with customer-managed keys
+
+**Data in Transit**:
+- All gRPC: mTLS with TLS 1.3
+- All HTTP: HTTPS with TLS 1.3
+- Internal services: Service mesh (Istio) with automatic mTLS
+
+**Secrets Management**:
+```yaml
+# Kubernetes secrets with external-secrets operator
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: axiom-secrets
+spec:
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: axiom-credentials
+  data:
+    - secretKey: db-password
+      remoteRef:
+        key: axiom/postgres
+        property: password
+    - secretKey: jwt-private-key
+      remoteRef:
+        key: axiom/jwt
+        property: private_key
+```
+
+### 6.3 Audit Logging
+
+**Audit Event Schema**:
+```sql
+CREATE TABLE audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    user_id UUID NOT NULL,
+    action VARCHAR(100) NOT NULL,  -- e.g., 'ivcu.create', 'project.delete'
+    resource_type VARCHAR(50) NOT NULL,
+    resource_id UUID,
+    org_id UUID NOT NULL,
+    ip_address INET,
+    user_agent TEXT,
+    request_id UUID,
+    old_value JSONB,
+    new_value JSONB,
+    status VARCHAR(20) NOT NULL  -- 'success', 'failure', 'denied'
+);
+
+CREATE INDEX audit_logs_user_idx ON audit_logs (user_id, timestamp DESC);
+CREATE INDEX audit_logs_resource_idx ON audit_logs (resource_type, resource_id);
+```
+
+**Logged Actions**: All IVCU operations, project management, user management, authentication events, and authorization failures.
+
+### 6.4 Input Validation & Sanitization
+
+- **Intent Input**: Max 10,000 characters, sanitized for code injection
+- **File Uploads**: Scanned for malware, size limit 10MB
+- **API Rate Limiting**: 100 req/min per user, 1000 req/min per org
+
+
+
+## 7. Migration Strategy
+
+### 7.1 Database Migrations
+
+**Migration Framework**: golang-migrate with versioned SQL files
+
+**Migration File Naming**:
+```
+migrations/
+├── 000001_initial_schema.up.sql
+├── 000001_initial_schema.down.sql
+├── 000002_add_proof_certificates.up.sql
+├── 000002_add_proof_certificates.down.sql
+├── 000003_add_user_skill_profiles.up.sql
+└── 000003_add_user_skill_profiles.down.sql
+```
+
+**Migration Rules**:
+1. All migrations MUST be reversible (matching up/down scripts)
+2. Schema changes MUST be additive (no column drops in production)
+3. New columns MUST have defaults or be nullable
+4. Large table migrations MUST use `pt-online-schema-change` pattern
+
+**Example Migration**:
+```sql
+-- 000002_add_proof_certificates.up.sql
+BEGIN;
+
+CREATE TYPE proof_type_enum AS ENUM ('type_safety', 'memory_safety', 'contract_compliance', 'property_based');
+
+CREATE TABLE proof_certificates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ivcu_id UUID NOT NULL,
+    proof_type proof_type_enum NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    intent_id UUID NOT NULL,
+    ast_hash VARCHAR(64) NOT NULL,
+    code_hash VARCHAR(64) NOT NULL,
+    verifier_signatures JSONB NOT NULL DEFAULT '[]',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Add foreign key only if ivcus table exists
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'ivcus') THEN
+        ALTER TABLE proof_certificates ADD CONSTRAINT fk_proof_ivcu 
+            FOREIGN KEY (ivcu_id) REFERENCES ivcus(id);
+    END IF;
+END $$;
+
+COMMIT;
+
+-- 000002_add_proof_certificates.down.sql
+BEGIN;
+DROP TABLE IF EXISTS proof_certificates;
+DROP TYPE IF EXISTS proof_type_enum;
+COMMIT;
+```
+
+### 7.2 Zero-Downtime Deployment
+
+**Blue-Green Deployment Strategy**:
+```mermaid
+graph LR
+    LB[Load Balancer] --> Blue[Blue v1.0]
+    LB -.-> Green[Green v1.1]
+    
+    subgraph "Deployment Steps"
+        S1[1. Deploy Green] --> S2[2. Run Migrations]
+        S2 --> S3[3. Health Check]
+        S3 --> S4[4. Switch Traffic]
+        S4 --> S5[5. Monitor]
+        S5 --> S6[6. Decommission Blue]
+    end
+```
+
+**Rollback Procedure**:
+1. Switch load balancer back to Blue
+2. Run down migrations (if safe)
+3. Investigate failure
+4. Fix and redeploy
+
+### 7.3 Data Migration for New Components
+
+**Projection Engine Bootstrap**:
+```go
+// Replay events to populate new read models
+func (pe *ProjectionEngine) Bootstrap(ctx context.Context) error {
+    // 1. Get last processed sequence from checkpoint
+    checkpoint, _ := pe.getCheckpoint(ctx)
+    
+    // 2. Stream historical events from event store
+    events, err := pe.eventStore.StreamFrom(ctx, checkpoint.LastSequence)
+    if err != nil {
+        return err
+    }
+    
+    // 3. Process in batches
+    batch := make([]Event, 0, 1000)
+    for event := range events {
+        batch = append(batch, event)
+        if len(batch) >= 1000 {
+            if err := pe.processBatch(ctx, batch); err != nil {
+                return err
+            }
+            batch = batch[:0]
+        }
+    }
+    
+    return pe.processBatch(ctx, batch)
+}
+```
+
+**UserSkillProfile Initialization**:
+```sql
+-- Backfill skill profiles for existing users
+INSERT INTO user_skill_profiles (user_id, skill_level, total_intents_created, successful_generations)
+SELECT 
+    u.id,
+    'beginner',
+    COALESCE(i.intent_count, 0),
+    COALESCE(g.success_count, 0)
+FROM users u
+LEFT JOIN (SELECT user_id, COUNT(*) as intent_count FROM intents GROUP BY user_id) i ON u.id = i.user_id
+LEFT JOIN (SELECT user_id, COUNT(*) as success_count FROM generations WHERE status = 'success' GROUP BY user_id) g ON u.id = g.user_id
+ON CONFLICT (user_id) DO NOTHING;
+```
+
+### 7.4 Event Schema Evolution
+
+**Backward-Compatible Event Changes**:
+```go
+// Event envelope supports versioning
+type EventEnvelope struct {
+    ID        string    `json:"id"`
+    Type      string    `json:"type"`
+    Version   int       `json:"version"`  // Schema version
+    Timestamp time.Time `json:"timestamp"`
+    Data      json.RawMessage `json:"data"`
+}
+
+// Handler supports multiple versions
+func (h *IntentCreatedHandler) Project(ctx context.Context, env EventEnvelope) error {
+    switch env.Version {
+    case 1:
+        var v1 IntentCreatedV1
+        json.Unmarshal(env.Data, &v1)
+        return h.projectV1(ctx, v1)
+    case 2:
+        var v2 IntentCreatedV2
+        json.Unmarshal(env.Data, &v2)
+        return h.projectV2(ctx, v2)
+    default:
+        return fmt.Errorf("unsupported event version: %d", env.Version)
+    }
+}
+```
+
+
+
+## 8. Error Handling
+
+### 8.1 Documentation Errors
 
 **Missing Component Documentation**:
 - **Error**: Required component (Projection_Engine, ConsistencyManager, etc.) not documented
@@ -1461,7 +1729,7 @@ For this design refinement, properties focus on documentation completeness and c
 - **Handling**: Search and replace with glossary terms
 - **Prevention**: Use glossary reference during writing
 
-### 6.2 Design Errors
+### 8.2 Design Errors
 
 **Missing Interface Definitions**:
 - **Error**: Component described but interface not defined
@@ -1478,7 +1746,7 @@ For this design refinement, properties focus on documentation completeness and c
 - **Handling**: Add quantitative targets based on system requirements
 - **Prevention**: Include performance section in component template
 
-### 6.3 Validation Errors
+### 8.3 Validation Errors
 
 **Requirements Traceability Gaps**:
 - **Error**: Design element not traced to requirement
@@ -1492,9 +1760,9 @@ For this design refinement, properties focus on documentation completeness and c
 
 
 
-## 7. Testing Strategy
+## 9. Testing Strategy
 
-### 7.1 Documentation Testing Approach
+### 9.1 Documentation Testing Approach
 
 Since this spec focuses on refining documentation artifacts rather than implementing code, the testing strategy emphasizes documentation validation and completeness checking.
 
@@ -1502,7 +1770,7 @@ Since this spec focuses on refining documentation artifacts rather than implemen
 - **Manual Review**: Human review of documentation for clarity, completeness, and consistency
 - **Automated Validation**: Scripts to verify documentation properties
 
-### 7.2 Manual Review Tests
+### 9.2 Manual Review Tests
 
 **Completeness Review**:
 - Verify all requirements are addressed in design document
@@ -1522,7 +1790,7 @@ Since this spec focuses on refining documentation artifacts rather than implemen
 - Check that examples illustrate key concepts effectively
 - Ensure technical decisions are justified
 
-### 7.3 Automated Validation Tests
+### 9.3 Automated Validation Tests
 
 **Property-Based Tests**:
 
@@ -1693,7 +1961,7 @@ def test_backward_compatibility_specification():
             f"Backward compatibility requirement '{requirement}' not specified"
 ```
 
-### 7.4 Unit Tests
+### 9.4 Unit Tests
 
 Unit tests focus on specific examples and edge cases for documentation validation:
 
@@ -1757,7 +2025,7 @@ def test_proof_certificate_schema():
             f"ProofCertificate missing field: {field}"
 ```
 
-### 7.5 Test Execution
+### 9.5 Test Execution
 
 **Pre-commit Validation**:
 - Run all property tests before committing changes

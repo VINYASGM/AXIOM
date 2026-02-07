@@ -1,0 +1,37 @@
+    Checking windows-sys v0.61.2
+    Checking regex-automata v0.4.13
+    Checking regex v1.12.2
+    Checking mio v1.1.1
+    Checking winapi-util v0.1.11
+    Checking is-terminal v0.4.17
+    Checking termcolor v1.4.1
+    Checking env_logger v0.10.2
+    Checking tokio v1.49.0
+    Checking tokio-util v0.7.18
+    Checking tokio-io-timeout v1.2.1
+    Checking tokio-stream v0.1.18
+    Checking h2 v0.3.27
+    Checking tower v0.4.13
+    Checking hyper v0.14.32
+    Checking hyper-timeout v0.4.1
+    Checking axum v0.6.20
+    Checking tonic v0.11.0
+    Checking verifier v0.1.0 (C:\Users\Vinyas G M\OneDrive\Desktop\Axiom\services\verifier)
+warning: unused import: `Issue`
+ --> src\main.rs:3:67
+  |
+3 | use verifier::{VerifyRequest, VerifyResponse, VerificationResult, Issue};
+  |                                                                   ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused variable: `timeout_ms`
+  --> src\sandbox.rs:22:41
+   |
+22 |     pub fn execute(&self, _code: &[u8], timeout_ms: u64) -> Result<ExecutionResult> {
+   |                                         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_timeout_ms`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: `verifier` (bin "verifier") generated 2 warnings (run `cargo fix --bin "verifier"` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.33s

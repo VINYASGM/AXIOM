@@ -613,6 +613,90 @@ class GraphMemoryStore:
                     ON CONFLICT DO NOTHING
                 """, uuid.UUID(new_node_id), uuid.UUID(old_node_id))
 
+    async def get_graph(
+        self,
+        project_id: Optional[str] = None,
+        limit: int = 200
+    ) -> GraphRAGResult:
+        """
+        Retrieves the most recent nodes and edges for visualization.
+        
+        Args:
+            project_id: Filter by project
+            limit: Max nodes to return
+            
+        Returns:
+            GraphRAGResult with nodes and edges
+        """
+        import uuid
+        import time
+        start_time = time.time()
+        
+        async with self.pool.acquire() as conn:
+            # Get recent nodes
+            query_str = """
+                SELECT 
+                    id, content, node_type, tier, metadata, created_at,
+                    source_ivcu_id, project_id
+                FROM memory_nodes
+                WHERE is_active = TRUE
+            """
+            params = []
+            
+            if project_id:
+                query_str += " AND project_id = $1"
+                params.append(uuid.UUID(project_id))
+            
+            query_str += f" ORDER BY created_at DESC LIMIT ${len(params) + 1}"
+            params.append(limit)
+            
+            node_rows = await conn.fetch(query_str, *params)
+            
+            nodes = []
+            node_ids = []
+            for row in node_rows:
+                node = MemoryNode(
+                    id=str(row['id']),
+                    content=row['content'],
+                    node_type=row['node_type'],
+                    tier=MemoryTier(row['tier']),
+                    metadata=json.loads(row['metadata']) if row['metadata'] else {},
+                    created_at=row['created_at'],
+                    source_ivcu_id=str(row['source_ivcu_id']) if row['source_ivcu_id'] else None,
+                    project_id=str(row['project_id']) if row['project_id'] else None
+                )
+                nodes.append(node)
+                node_ids.append(uuid.UUID(node.id))
+            
+            # Get edges connecting these nodes
+            edges = []
+            if node_ids:
+                edge_rows = await conn.fetch("""
+                    SELECT 
+                        id, source_id, target_id, relationship, weight, metadata, created_at
+                    FROM memory_edges
+                    WHERE source_id = ANY($1::uuid[]) AND target_id = ANY($1::uuid[])
+                """, node_ids)
+                
+                for row in edge_rows:
+                    edges.append(MemoryEdge(
+                        id=str(row['id']),
+                        source_id=str(row['source_id']),
+                        target_id=str(row['target_id']),
+                        relationship=RelationshipType(row['relationship']),
+                        weight=row['weight'],
+                        metadata=json.loads(row['metadata']) if row['metadata'] else {},
+                        created_at=row['created_at']
+                    ))
+            
+            return GraphRAGResult(
+                primary_nodes=nodes,
+                related_nodes=[],
+                relationships=edges,
+                query_time_ms=(time.time() - start_time) * 1000,
+                vector_score=None
+            )
+
 
 # Singleton instance
 _graph_memory: Optional[GraphMemoryStore] = None

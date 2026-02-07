@@ -1,0 +1,208 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 589B done
+#1 WARN: FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 1)
+#1 DONE 0.0s
+
+#2 [auth] library/rust:pull token for registry-1.docker.io
+#2 DONE 0.0s
+
+#3 [auth] library/debian:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#4 [internal] load metadata for docker.io/library/rust:1.76
+#4 ...
+
+#5 [internal] load metadata for docker.io/library/debian:bookworm-slim
+#5 DONE 2.3s
+
+#4 [internal] load metadata for docker.io/library/rust:1.76
+#4 DONE 2.4s
+
+#6 [internal] load .dockerignore
+#6 transferring context: 2B done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 DONE 0.0s
+
+#8 [stage-1 1/4] FROM docker.io/library/debian:bookworm-slim@sha256:56ff6d36d4eb3db13a741b342ec466f121480b5edded42e4b7ee850ce7a418ee
+#8 resolve docker.io/library/debian:bookworm-slim@sha256:56ff6d36d4eb3db13a741b342ec466f121480b5edded42e4b7ee850ce7a418ee 0.1s done
+#8 DONE 0.1s
+
+#9 [stage-1 2/4] RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
+#9 CACHED
+
+#10 [builder 1/7] FROM docker.io/library/rust:1.76@sha256:d36f9d8a9a4c76da74c8d983d0d4cb146dd2d19bb9bd60b704cdcf70ef868d3a
+#10 resolve docker.io/library/rust:1.76@sha256:d36f9d8a9a4c76da74c8d983d0d4cb146dd2d19bb9bd60b704cdcf70ef868d3a 0.1s done
+#10 DONE 0.1s
+
+#7 [internal] load build context
+#7 transferring context: 2.08kB done
+#7 DONE 0.0s
+
+#11 [builder 2/7] WORKDIR /usr/src/app
+#11 CACHED
+
+#12 [builder 3/7] COPY Cargo.toml Cargo.lock ./
+#12 DONE 0.1s
+
+#13 [builder 4/7] COPY src ./src
+#13 DONE 0.1s
+
+#14 [builder 5/7] COPY proto ./proto
+#14 DONE 0.1s
+
+#15 [builder 6/7] COPY build.rs ./
+#15 DONE 0.1s
+
+#16 [builder 7/7] RUN cargo install --path .
+#16 0.440   Installing verifier v0.1.0 (/usr/src/app)
+#16 0.475     Updating crates.io index
+#16 15.92  Downloading crates ...
+#16 16.10   Downloaded async-stream-impl v0.3.6
+#16 16.12   Downloaded axum-core v0.3.4
+#16 16.14   Downloaded want v0.3.1
+#16 16.22   Downloaded fnv v1.0.7
+#16 16.22   Downloaded fastrand v2.3.0
+#16 16.23   Downloaded async-stream v0.3.6
+#16 16.24   Downloaded try-lock v0.2.5
+#16 16.24   Downloaded http-body v0.4.6
+#16 16.25   Downloaded itoa v1.0.17
+#16 16.25   Downloaded futures-sink v0.3.31
+#16 16.26   Downloaded futures-core v0.3.31
+#16 16.27   Downloaded equivalent v1.0.2
+#16 16.27   Downloaded errno v0.3.14
+#16 16.30   Downloaded zmij v1.0.17
+#16 16.31   Downloaded futures-task v0.3.31
+#16 16.47   Downloaded unicode-ident v1.0.22
+#16 16.51   Downloaded tracing-core v0.1.36
+#16 16.55   Downloaded uuid v1.20.0
+#16 16.58   Downloaded zerocopy v0.8.35
+#16 16.64   Downloaded tracing v0.1.44
+#16 16.69   Downloaded tower-service v0.3.3
+#16 16.69   Downloaded pin-utils v0.1.0
+#16 16.76   Downloaded rand_chacha v0.3.1
+#16 16.77   Downloaded async-trait v0.1.89
+#16 16.78   Downloaded tower-layer v0.3.3
+#16 16.78   Downloaded protoc-bin-vendored v3.2.0
+#16 16.78   Downloaded tokio-io-timeout v1.2.1
+#16 16.79   Downloaded percent-encoding v2.3.2
+#16 16.79   Downloaded mime v0.3.17
+#16 16.79   Downloaded multimap v0.10.1
+#16 16.86   Downloaded sync_wrapper v0.1.2
+#16 16.90   Downloaded hyper-timeout v0.4.1
+#16 16.90   Downloaded httpdate v1.0.3
+#16 16.91   Downloaded fixedbitset v0.4.2
+#16 16.91   Downloaded cfg-if v1.0.4
+#16 17.31   Downloaded heck v0.5.0
+#16 17.32   Downloaded autocfg v1.5.0
+#16 17.44   Downloaded pin-project-internal v1.1.10
+#16 17.52   Downloaded tokio-macros v2.6.0
+#16 17.54   Downloaded tonic-build v0.11.0
+#16 17.77   Downloaded rustversion v1.0.22
+#16 17.78   Downloaded ppv-lite86 v0.2.21
+#16 17.78   Downloaded prost-derive v0.12.6
+#16 17.86   Downloaded prost v0.12.6
+#16 17.89   Downloaded either v1.15.0
+#16 18.13   Downloaded futures-channel v0.3.31
+#16 18.15   Downloaded bitflags v1.3.2
+#16 18.31   Downloaded pin-project-lite v0.2.16
+#16 18.33   Downloaded rand_core v0.6.4
+#16 18.69   Downloaded matchit v0.7.3
+#16 18.73   Downloaded bitflags v2.10.0
+#16 18.79   Downloaded getrandom v0.2.17
+#16 18.84   Downloaded prost-build v0.12.6
+#16 18.98   Downloaded once_cell v1.21.3
+#16 19.42   Downloaded slab v0.4.11
+#16 19.42   Downloaded prost-types v0.12.6
+#16 19.54   Downloaded tokio-stream v0.1.18
+#16 19.55   Downloaded tempfile v3.24.0
+#16 19.64   Downloaded quote v1.0.44
+#16 19.69   Downloaded tracing-attributes v0.1.31
+#16 19.77   Downloaded httparse v1.10.1
+#16 20.63   Downloaded getrandom v0.3.4
+#16 20.66   Downloaded indexmap v1.9.3
+#16 20.67   Downloaded pin-project v1.1.10
+#16 20.82   Downloaded serde_core v1.0.228
+#16 20.85   Downloaded serde_derive v1.0.228
+#16 20.95   Downloaded socket2 v0.6.2
+#16 20.95   Downloaded proc-macro2 v1.0.106
+#16 21.05   Downloaded socket2 v0.5.10
+#16 21.56   Downloaded log v0.4.29
+#16 21.68   Downloaded anyhow v1.0.100
+#16 21.69   Downloaded prettyplease v0.2.37
+#16 22.19   Downloaded memchr v2.7.6
+#16 22.21   Downloaded rand v0.8.5
+#16 22.30   Downloaded base64 v0.21.7
+#16 22.31   Downloaded bytes v1.11.0
+#16 22.64   Downloaded hashbrown v0.12.3
+#16 22.71   Downloaded tower v0.4.13
+#16 22.75   Downloaded serde v1.0.228
+#16 22.76   Downloaded http v0.2.12
+#16 22.85   Downloaded indexmap v2.13.0
+#16 22.95   Downloaded tonic v0.11.0
+#16 23.13   Downloaded mio v1.1.1
+#16 23.38   Downloaded axum v0.6.20
+#16 23.48   Downloaded itertools v0.12.1
+#16 23.57   Downloaded hashbrown v0.16.1
+#16 23.59   Downloaded tokio-util v0.7.18
+#16 23.89   Downloaded futures-util v0.3.31
+#16 23.95   Downloaded h2 v0.3.27
+#16 23.97   Downloaded serde_json v1.0.149
+#16 24.17   Downloaded aho-corasick v1.1.4
+#16 24.19   Downloaded hyper v0.14.32
+#16 24.41   Downloaded regex v1.12.2
+#16 25.66   Downloaded syn v2.0.114
+#16 26.16   Downloaded regex-syntax v0.8.8
+#16 26.89   Downloaded rustix v1.1.3
+#16 29.93   Downloaded regex-automata v0.4.13
+#16 30.65   Downloaded petgraph v0.6.5
+#16 31.73   Downloaded libc v0.2.180
+#16 33.81   Downloaded tokio v1.49.0
+#16 52.60   Downloaded protoc-bin-vendored-macos-aarch_64 v3.2.0
+#16 53.19   Downloaded protoc-bin-vendored-macos-x86_64 v3.2.0
+#16 53.81   Downloaded linux-raw-sys v0.11.0
+#16 59.83   Downloaded protoc-bin-vendored-linux-x86_64 v3.2.0
+#16 60.08   Downloaded protoc-bin-vendored-win32 v3.2.0
+#16 60.18   Downloaded protoc-bin-vendored-linux-aarch_64 v3.2.0
+#16 60.86   Downloaded protoc-bin-vendored-linux-ppcle_64 v3.2.0
+#16 61.08   Downloaded protoc-bin-vendored-linux-x86_32 v3.2.0
+#16 61.65   Downloaded protoc-bin-vendored-linux-s390_64 v3.2.0
+#16 61.77 error: failed to compile `verifier v0.1.0 (/usr/src/app)`, intermediate artifacts can be found at `/usr/src/app/target`.
+#16 61.77 To reuse those artifacts with a future compilation, set the environment variable `CARGO_TARGET_DIR` to that path.
+#16 61.77 
+#16 61.77 Caused by:
+#16 61.77   package `indexmap v2.13.0` cannot be built because it requires rustc 1.82 or newer, while the currently active rustc version is 1.76.0
+#16 61.77   Either upgrade to rustc 1.82 or newer, or use
+#16 61.77   cargo update indexmap@2.13.0 --precise ver
+#16 61.77   where `ver` is the latest version of `indexmap` supporting rustc 1.76.0
+#16 ERROR: process "/bin/sh -c cargo install --path ." did not complete successfully: exit code: 101
+------
+ > [builder 7/7] RUN cargo install --path .:
+61.08   Downloaded protoc-bin-vendored-linux-x86_32 v3.2.0
+61.65   Downloaded protoc-bin-vendored-linux-s390_64 v3.2.0
+61.77 error: failed to compile `verifier v0.1.0 (/usr/src/app)`, intermediate artifacts can be found at `/usr/src/app/target`.
+61.77 To reuse those artifacts with a future compilation, set the environment variable `CARGO_TARGET_DIR` to that path.
+61.77 
+61.77 Caused by:
+61.77   package `indexmap v2.13.0` cannot be built because it requires rustc 1.82 or newer, while the currently active rustc version is 1.76.0
+61.77   Either upgrade to rustc 1.82 or newer, or use
+61.77   cargo update indexmap@2.13.0 --precise ver
+61.77   where `ver` is the latest version of `indexmap` supporting rustc 1.76.0
+------
+
+ [33m1 warning found (use docker --debug to expand):
+[0m - FromAsCasing: 'as' and 'FROM' keywords' casing do not match (line 1)
+Dockerfile:14
+--------------------
+  12 |     
+  13 |     # Build release binary
+  14 | >>> RUN cargo install --path .
+  15 |     
+  16 |     FROM debian:bookworm-slim
+--------------------
+ERROR: failed to build: failed to solve: process "/bin/sh -c cargo install --path ." did not complete successfully: exit code: 101
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/veyr2iqelxxeor8m4ium52k04

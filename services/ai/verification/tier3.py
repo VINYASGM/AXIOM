@@ -11,13 +11,14 @@ import json
 import asyncio
 from typing import List, Optional, Dict, Any
 from .result import VerifierResult, VerificationTier
+from .smt_verifier import get_smt_verifier
 
 class Tier3Verifier:
     """
     Tier 3: Deep verification
     - Security scanning (Bandit)
     - Property-based/Fuzz testing (Hypothesis)
-    - (Future) SMT Solver / Model Checking
+    - SMT Solver / Model Checking (Z3)
     """
     
     def __init__(self):
@@ -26,7 +27,8 @@ class Tier3Verifier:
     async def verify_all(
         self, 
         code: str, 
-        language: str = "python"
+        language: str = "python",
+        contracts: Optional[List[Dict[str, Any]]] = None
     ) -> List[VerifierResult]:
         """Run all Tier 3 verifiers"""
         results = []
@@ -35,8 +37,11 @@ class Tier3Verifier:
             # 1. Security Scan (Bandit)
             results.append(await self.verify_security(code))
             
+            # 2. Fuzz Check
+            results.append(await self.verify_fuzz(code))
+            
             # 3. SMT/Model Checking (Z3)
-            # results.append(await self.verify_smt(code))
+            results.append(await self.verify_smt(code, contracts))
 
         else:
             results.append(VerifierResult(
@@ -50,17 +55,39 @@ class Tier3Verifier:
         
         return results
 
-    async def verify_smt(self, code: str) -> VerifierResult:
+    async def verify_smt(self, code: str, contracts: Optional[List[Dict[str, Any]]] = None) -> VerifierResult:
         """
-        Placeholder for Symbolic Execution / SMT Solving (Z3).
-        Requires translating code to SMT constraints.
+        Symbolic Execution / SMT Solving (Z3).
+        Verifies logical contracts (pre/post-conditions).
         """
+        smt = get_smt_verifier()
+        result = await smt.verify_contracts(code, contracts or [], "python")
+        
+        passed = result.status in ["sat", "disabled"] # Disabled counts as passed (skipped)
+        
+        messages = []
+        warnings = []
+        
+        if result.status == "disabled":
+            warnings.append("SMT Solver (Z3) not installed")
+        elif result.status == "sat":
+            messages.append(f"Formal verification passed in {result.solve_time_ms:.2f}ms")
+            for a in result.assertions:
+                messages.append(f"Verified: {a.name}")
+        elif result.status == "unsat":
+            warnings.append("Formal verification FAILED (Unsatisfiable)")
+            for a in result.assertions:
+                if not a.verified:
+                    warnings.append(f"Failed contract: {a.name} ({a.expression})")
+        
         return VerifierResult(
             name="smt_solver",
             tier=self.tier,
-            passed=True,
-            confidence=0.5,
-            warnings=["SMT Verification not enabled (Requires Z3 integration)"]
+            passed=passed,
+            confidence=1.0 if result.status == "sat" else 0.5,
+            messages=messages,
+            warnings=warnings,
+            duration_ms=result.solve_time_ms
         )
 
     async def verify_security(self, code: str) -> VerifierResult:

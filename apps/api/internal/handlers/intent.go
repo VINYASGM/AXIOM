@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"time"
 
@@ -311,5 +312,28 @@ func (h *IntentHandler) ListProjectIVCUs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ivcus": ivcus})
 }
 
+// GetGraph retrieves the SDE graph (nodes and edges)
+func (h *IntentHandler) GetGraph(c *gin.Context) {
+	// Proxy to AI Service which holds the SDO graph source of truth
+	resp, err := http.Get(h.aiServiceURL + "/api/v1/graph")
+	if err != nil {
+		h.logger.Error("failed to call AI service", zap.Error(err))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "AI service returned error"})
+		return
+	}
+
+	// Stream response back
+	c.Header("Content-Type", "application/json")
+	c.Status(http.StatusOK)
+	_, _ = io.Copy(c.Writer, resp.Body)
+}
+
 // Unused import workaround
 var _ = bytes.Buffer{}
+var _ = io.Copy

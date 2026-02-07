@@ -1,0 +1,18 @@
+DEBUG: STARTING ON PORT 8002
+Initializing AXIOM AI Service v0.5.0...
+Telemetry initialized successfully
+Stream GENERATIONS exists
+Stream AUDIT exists
+Stream METRICS exists
+Stream IVCU_EVENTS exists
+Connected to NATS JetStream at nats://localhost:4222
+WARN: Temporal connection failed/timed out: Failed client connect: Server connection error: tonic::transport::Error(Transport, ConnectError(ConnectError("tcp connect error", 127.0.0.1:7233, Os { code: 10061, kind: ConnectionRefused, message: "No connection could be made because the target machine actively refused it." })))
+Memory service running without Qdrant (fallback mode)
+Connected to PostgreSQL at localhost:5433/axiom?sslmode=disable
+Database service connected to PostgreSQL
+SDO Engine ready
+Economics service ready
+Verification Orchestra ready
+Verification Orchestra ready
+Event Streaming initialized
+Shutting down AXIOM AI Service...

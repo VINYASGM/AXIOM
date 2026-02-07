@@ -1,0 +1,43 @@
+    Checking verifier v0.1.0 (C:\Users\Vinyas G M\OneDrive\Desktop\Axiom\services\verifier)
+error[E0432]: unresolved import `verifier::VerificationResult`
+ --> src\main.rs:3:47
+  |
+3 | use verifier::{VerifyRequest, VerifyResponse, VerificationResult};
+  |                                               ^^^^^^^^^^^^^^^^^^ no `VerificationResult` in `verifier`
+
+error[E0432]: unresolved import `log`
+ --> src\main.rs:4:5
+  |
+4 | use log::{info, error};
+  |     ^^^ use of unresolved module or unlinked crate `log`
+  |
+  = help: if you wanted to use a crate named `log`, use `cargo add log` to add it to your `Cargo.toml`
+
+error[E0609]: no field `contracts` on type `VerifyRequest`
+  --> src\main.rs:37:17
+   |
+37 |         if !req.contracts.is_empty() {
+   |                 ^^^^^^^^^ unknown field
+   |
+   = note: available fields are: `code`, `language`, `checks`
+
+error[E0560]: struct `VerifyResponse` has no field named `results`
+  --> src\main.rs:85:13
+   |
+85 |             results,
+   |             ^^^^^^^ `VerifyResponse` does not have this field
+   |
+   = note: all struct fields are already assigned
+
+warning: unused variable: `timeout_ms`
+  --> src\sandbox.rs:22:41
+   |
+22 |     pub fn execute(&self, _code: &[u8], timeout_ms: u64) -> Result<ExecutionResult> {
+   |                                         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_timeout_ms`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+Some errors have detailed explanations: E0432, E0560, E0609.
+For more information about an error, try `rustc --explain E0432`.
+warning: `verifier` (bin "verifier") generated 1 warning
+error: could not compile `verifier` (bin "verifier") due to 4 previous errors; 1 warning emitted

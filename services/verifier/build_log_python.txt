@@ -1,0 +1,74 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 393B done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/python:3.11-slim
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [internal] load build context
+#4 transferring context: 1.60kB done
+#4 DONE 0.1s
+
+#5 [1/6] FROM docker.io/library/python:3.11-slim@sha256:7cd0079a9bd8800c81632d65251048fc2848bf9afda542224b1b10e0cae45575
+#5 resolve docker.io/library/python:3.11-slim@sha256:7cd0079a9bd8800c81632d65251048fc2848bf9afda542224b1b10e0cae45575 0.0s done
+#5 DONE 0.3s
+
+#6 [2/6] WORKDIR /app
+#6 DONE 0.1s
+
+#7 [3/6] RUN pip install grpcio grpcio-tools protobuf
+#7 5.535 Collecting grpcio
+#7 6.086   Downloading grpcio-1.76.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (3.7 kB)
+#7 7.924 Collecting grpcio-tools
+#7 7.942   Downloading grpcio_tools-1.76.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (5.3 kB)
+#7 8.596 Collecting protobuf
+#7 8.626   Downloading protobuf-6.33.4-cp39-abi3-manylinux2014_x86_64.whl.metadata (593 bytes)
+#7 8.689 Collecting typing-extensions~=4.12 (from grpcio)
+#7 8.719   Downloading typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+#7 8.820 Requirement already satisfied: setuptools in /usr/local/lib/python3.11/site-packages (from grpcio-tools) (79.0.1)
+#7 8.865 Downloading grpcio-1.76.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (6.6 MB)
+#7 12.26    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.6/6.6 MB 1.9 MB/s eta 0:00:00
+#7 12.28 Downloading grpcio_tools-1.76.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (2.7 MB)
+#7 15.58    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.7/2.7 MB 826.3 kB/s eta 0:00:00
+#7 15.62 Downloading protobuf-6.33.4-cp39-abi3-manylinux2014_x86_64.whl (323 kB)
+#7 15.89    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 323.3/323.3 kB 1.2 MB/s eta 0:00:00
+#7 15.96 Downloading typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+#7 15.99    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 44.6/44.6 kB 1.3 MB/s eta 0:00:00
+#7 16.03 Installing collected packages: typing-extensions, protobuf, grpcio, grpcio-tools
+#7 16.44 Successfully installed grpcio-1.76.0 grpcio-tools-1.76.0 protobuf-6.33.4 typing-extensions-4.15.0
+#7 16.44 WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+#7 16.95 
+#7 16.95 [notice] A new release of pip is available: 24.0 -> 25.3
+#7 16.95 [notice] To update, run: pip install --upgrade pip
+#7 DONE 17.5s
+
+#8 [4/6] COPY proto/verifier.proto /app/proto/verifier.proto
+#8 DONE 0.1s
+
+#9 [5/6] COPY verifier_stub.py /app/main.py
+#9 DONE 0.1s
+
+#10 [6/6] RUN python -m grpc_tools.protoc -I/app/proto --python_out=. --grpc_python_out=. /app/proto/verifier.proto
+#10 DONE 0.4s
+
+#11 exporting to image
+#11 exporting layers
+#11 exporting layers 2.2s done
+#11 exporting manifest sha256:9124597907291e8cce1505dd4b7ddb20b10fd6ab9d7b45af6c04e4b44264587a 0.0s done
+#11 exporting config sha256:18c2cd729b4428d0157eb3e5c9cdd8f867eccc37927006803615eb32e7e52e37 0.0s done
+#11 exporting attestation manifest sha256:f915d32bdf815e068e85a29a63db5291addc5515439835202b722b14da84dd73
+#11 exporting attestation manifest sha256:f915d32bdf815e068e85a29a63db5291addc5515439835202b722b14da84dd73 0.1s done
+#11 exporting manifest list sha256:3dc33bfb646316015c28a3d0bb9432659bd5c10c9c89e8be14340a5ea38d6261 0.0s done
+#11 naming to docker.io/library/axiom-verifier:latest
+#11 naming to docker.io/library/axiom-verifier:latest done
+#11 unpacking to docker.io/library/axiom-verifier:latest
+#11 unpacking to docker.io/library/axiom-verifier:latest 0.8s done
+#11 DONE 3.2s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/o6gxwfwu35rd4imcnu6e96vlz

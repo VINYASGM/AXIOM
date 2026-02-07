@@ -118,6 +118,8 @@ class Tier0Result:
         }
 
 
+from utils.parser import get_parser, TREE_SITTER_AVAILABLE
+
 class TreeSitterVerifier:
     """
     Tree-sitter based syntax verifier.
@@ -162,72 +164,12 @@ class TreeSitterVerifier:
     }
     
     def __init__(self):
-        self._parsers: Dict[str, Any] = {}
-        self._languages: Dict[str, Any] = {}
         self._ast_cache: Dict[str, Tuple[str, Any]] = {}  # code_hash -> (code, tree)
         self._max_cache_size = 100
     
     def _get_parser(self, language: str) -> Optional[Any]:
-        """Get or create a parser for a language."""
-        if not TREE_SITTER_AVAILABLE:
-            return None
-        
-        if language not in self._parsers:
-            try:
-                # Try to load the language
-                parser = Parser()
-                
-                # Try different methods to load language
-                lang = self._load_language(language)
-                if lang:
-                    parser.set_language(lang)
-                    self._parsers[language] = parser
-                    self._languages[language] = lang
-                else:
-                    return None
-            except Exception as e:
-                print(f"Failed to initialize parser for {language}: {e}")
-                return None
-        
-        return self._parsers.get(language)
-    
-    def _load_language(self, language: str) -> Optional[Any]:
-        """Load a tree-sitter language."""
-        if not TREE_SITTER_AVAILABLE:
-            return None
-        
-        try:
-            # Try tree_sitter_languages package first
-            import tree_sitter_languages
-            return tree_sitter_languages.get_language(language)
-        except ImportError:
-            pass
-        except Exception:
-            pass
-        
-        # Try individual language packages
-        try:
-            if language == "python":
-                import tree_sitter_python
-                return Language(tree_sitter_python.language())
-            elif language == "javascript":
-                import tree_sitter_javascript
-                return Language(tree_sitter_javascript.language())
-            elif language == "typescript":
-                import tree_sitter_typescript
-                return Language(tree_sitter_typescript.language_typescript())
-            elif language == "go":
-                import tree_sitter_go
-                return Language(tree_sitter_go.language())
-            elif language == "rust":
-                import tree_sitter_rust
-                return Language(tree_sitter_rust.language())
-        except ImportError:
-            pass
-        except Exception:
-            pass
-        
-        return None
+        """Get parser from utility."""
+        return get_parser(language)
     
     def verify(self, code: str, language: str) -> Tier0Result:
         """

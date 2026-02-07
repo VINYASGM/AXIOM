@@ -20,7 +20,8 @@ from models.providers import (
     AnthropicProvider,
     GoogleProvider
 )
-from router import ChatRequest, ChatMessage
+from router import ChatRequest, ChatMessage, init_router
+from router_adapter import RouterRunnable
 
 
 class IntentParsingResult(BaseModel):
@@ -67,10 +68,13 @@ class LLMService:
         if self.openai_key and self.openai_key != "your-openai-api-key":
             self.embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
         
-        # LangChain model for structured parsing (fallback)
-        self.model = None
-        if self.openai_key and self.openai_key != "your-openai-api-key":
-            self.model = ChatOpenAI(model="gpt-4-turbo-preview", temperature=0.1)
+        # Initialize Router
+        self.router = init_router(self)
+        
+        # Adapt Router to LangChain Runnable for parsing
+        # Use a cheaper/faster model for intent parsing if available (e.g. gpt-3.5 or haiku)
+        # For now defaulting to capable model
+        self.model = RouterRunnable(self.router, model="gpt-4-turbo")
     
     def get_available_providers(self) -> Dict[str, bool]:
         """Return which providers are configured."""
@@ -86,26 +90,12 @@ class LLMService:
         temperature: float = 0.1
     ) -> Dict[str, Any]:
         """
-        Generate using the specified provider. Falls back to default if not specified.
+        Generate using the router.
         """
-        provider_name = provider or self.default_provider
-        
-        if not provider_name or provider_name not in self.providers:
-            # Fallback to mock if no provider configured
-            return self._mock_generate(prompt)
-        
-        llm_provider = self.providers[provider_name]
-        
-        # Select model based on provider
+        # Default model if not specified (Router will optimize if policies allowed)
         if not model:
-            model_map = {
-                "deepseek": "deepseek-chat",
-                "openai": "gpt-4o",
-                "anthropic": "claude-sonnet-4-20250514",
-                "google": "gemini-2.0-flash"
-            }
-            model = model_map.get(provider_name, "deepseek-chat")
-        
+            model = "gpt-4-turbo"
+            
         request = ChatRequest(
             model=model,
             messages=[
@@ -113,11 +103,12 @@ class LLMService:
                 ChatMessage(role="user", content=prompt)
             ],
             max_tokens=max_tokens,
-            temperature=temperature
+            temperature=temperature,
+            metadata={"provider_hint": provider} if provider else {}
         )
         
         try:
-            response = await llm_provider.chat(request)
+            response = await self.router.chat(request)
             return {
                 "content": response.content,
                 "model": response.model,
@@ -126,7 +117,7 @@ class LLMService:
                 "latency_ms": response.latency_ms
             }
         except Exception as e:
-            print(f"Provider {provider_name} failed: {e}")
+            print(f"Router Generation failed: {e}")
             return self._mock_generate(prompt)
     
     async def generate_stream(
@@ -234,14 +225,16 @@ class LLMService:
             print(f"LLM Parsing failed: {e}")
             return self._mock_parse_intent(raw_intent)
 
-class ReasoningStep(BaseModel):
-    step: str = Field(description="Title of the reasoning step")
-    explanation: str = Field(description="Detailed explanation of the decision")
-    confidence: float = Field(description="Confidence in this step (0.0-1.0)")
-
-class CodeGenerationResult(BaseModel):
-    code: str = Field(description="The generated code")
-    reasoning: List[ReasoningStep] = Field(description="Chain of thought leading to this code")
+    def _mock_parse_intent(self, intent: str) -> Dict[str, Any]:
+        """Fallback deterministic parser"""
+        intent_lower = intent.lower()
+        return {
+            "action": "create",
+            "entity": "function" if "function" in intent_lower else "component",
+            "description": intent,
+            "constraints": ["mock_constraint"] if "mock" in intent_lower else [],
+            "suggested_refinements": ["Did you mean standard implementation?"]
+        }
 
     async def generate_code(self, sdo: SDO) -> Dict[str, Any]:
         """
@@ -303,17 +296,6 @@ Assistant:""")
             print(f"LLM Generation failed: {e}")
             return self._mock_generate_code(sdo)
 
-    def _mock_parse_intent(self, intent: str) -> Dict[str, Any]:
-        """Fallback deterministic parser"""
-        intent_lower = intent.lower()
-        return {
-            "action": "create", # Simplified
-            "entity": "function" if "function" in intent_lower else "component",
-            "description": intent,
-            "constraints": ["mock_constraint"] if "mock" in intent_lower else [],
-            "suggested_refinements": ["Did you mean standard implementation?"]
-        }
-
     def _mock_generate_code(self, sdo: SDO) -> Dict[str, Any]:
         """Fallback template generator"""
         lang = sdo.language.lower()
@@ -345,3 +327,14 @@ def test_fibonacci_edge():
                 {"step": "Implementation", "explanation": "Implemented core logic using standard patterns.", "confidence": 0.85}
             ]
         }
+
+
+class ReasoningStep(BaseModel):
+    step: str = Field(description="Title of the reasoning step")
+    explanation: str = Field(description="Detailed explanation of the decision")
+    confidence: float = Field(description="Confidence in this step (0.0-1.0)")
+
+
+class CodeGenerationResult(BaseModel):
+    code: str = Field(description="The generated code")
+    reasoning: List[ReasoningStep] = Field(description="Chain of thought leading to this code")
