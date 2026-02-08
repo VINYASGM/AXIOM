@@ -11,16 +11,31 @@ import (
 
 	"github.com/axiom/api/internal/config"
 	"github.com/axiom/api/internal/database"
+	"github.com/axiom/api/internal/economics"
 	"github.com/axiom/api/internal/eventbus"
 	"github.com/axiom/api/internal/handlers"
 	"github.com/axiom/api/internal/middleware"
 	"github.com/axiom/api/internal/orchestration"
+	"github.com/axiom/api/internal/speculation"
 	"github.com/axiom/api/internal/telemetry"
 	"github.com/axiom/api/internal/verifier"
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
+
+	_ "github.com/axiom/api/docs" // Swagger docs
 )
 
+// @title AXIOM API
+// @version 0.1.0
+// @description Core API for AXIOM Autonomous eXecution with Intent-Oriented Modeling.
+// @host localhost:8080
+// @BasePath /api/v1
+// @schemes http
+// @securityDefinitions.apikey Bearer
+// @in header
+// @name Authorization
 func main() {
 	// Initialize context
 	ctx := context.Background()
@@ -85,7 +100,7 @@ func main() {
 
 	logger.Info("Initializing Temporal...")
 	// Initialize Temporal Client
-	_, err = orchestration.InitTemporalClient()
+	temporalClient, err := orchestration.InitTemporalClient()
 	if err != nil {
 		logger.Error("failed to connect to temporal", zap.Error(err))
 		// We don't fatal here to allow API to run even if Temporal is down (optional resilience)
@@ -127,20 +142,26 @@ func main() {
 	router.Use(middleware.CORS())
 	router.Use(middleware.RequestID())
 
+	// Swagger documentation
+	router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
 	// Health check handlers
 	healthHandler := handlers.NewHealthHandler(db, rdb, cfg.AIServiceURL)
 	router.GET("/health", healthHandler.Health)
 	router.GET("/health/deep", healthHandler.DeepHealth)
 
+	// Initialize Economic Service
+	economicService := economics.NewService(db, logger)
+
 	logger.Info("Router initialized, setting up handlers...")
 
 	// Initialize handlers
-	intentHandler := handlers.NewIntentHandler(db, cfg.AIServiceURL, logger)
-	generationHandler := handlers.NewGenerationHandler(db, cfg.AIServiceURL, logger)
+	intentHandler := handlers.NewIntentHandler(db, cfg.AIServiceURL, logger, economicService) // Updated with economics dependency
+	generationHandler := handlers.NewGenerationHandler(db, cfg.AIServiceURL, logger, economicService, temporalClient)
 	verificationHandler := handlers.NewVerificationHandler(db, cfg.AIServiceURL, verifierClient, logger)
 	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret, logger)
 	intelligenceHandler := handlers.NewIntelligenceHandler(db, cfg.AIServiceURL, logger)
-	economicsHandler := handlers.NewEconomicsHandler(db, cfg.AIServiceURL, logger)
+	economicsHandler := handlers.NewEconomicsHandler(db, cfg.AIServiceURL, logger, economicService)
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
@@ -205,14 +226,10 @@ func main() {
 			project := protected.Group("/project/:projectId")
 			// Apply RBAC to project routes
 			// For reading list, viewer is enough
-			project.GET("/team", rbac.RequireRole(middleware.RoleViewer), teamHandler.ListMembers)
+			project.GET("/team", rbac.RequirePermission(middleware.PermReadProject), teamHandler.ListMembers)
 			// For adding members, need admin (or at least editor? usually admin)
-			project.POST("/team/invite", rbac.RequireRole(middleware.RoleAdmin), teamHandler.AddMember)
-			project.DELETE("/team/:userId", rbac.RequireRole(middleware.RoleAdmin), teamHandler.RemoveMember)
-			// Re-register list IVCUs under project scope with checks?
-			// intentHandler.ListObsolete -> we should move ListProjectIVCUs here or apply middleware there separately.
-			// existing route: intent.GET("/project/:projectId", intentHandler.ListProjectIVCUs)
-			// Let's secure the existing route later or just proceed with Team routes for now.
+			project.POST("/team/invite", rbac.RequirePermission(middleware.PermManageTeam), teamHandler.AddMember)
+			project.DELETE("/team/:userId", rbac.RequirePermission(middleware.PermManageTeam), teamHandler.RemoveMember)
 
 			// User routes
 			user := protected.Group("/user")
@@ -225,6 +242,11 @@ func main() {
 
 			// Reasoning routes (Phase 3)
 			protected.GET("/reasoning/:ivcuId", intelligenceHandler.GetReasoningTrace)
+
+			// Speculation routes (Phase 5)
+			speculationEngine := speculation.NewEngine(logger)
+			speculationHandler := handlers.NewSpeculationHandler(speculationEngine, logger)
+			protected.POST("/speculate", speculationHandler.AnalyzeIntent)
 		}
 	}
 

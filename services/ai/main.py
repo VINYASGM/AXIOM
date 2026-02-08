@@ -26,6 +26,8 @@ from knowledge import KnowledgeService
 from database import DatabaseService
 import eventbus
 from graph_memory import get_graph_memory
+from model_config import DynamicModelConfig, init_model_config, get_model_config
+from projection_engine import ProjectionEngine, init_projection_engine, get_projection_engine
 
 
 # OpenTelemetry Imports
@@ -61,6 +63,12 @@ sdo_engine = SDOEngine(llm_service, knowledge_service, database_service=database
 
 # Global Temporal Client
 temporal_client = None
+
+# Global Dynamic Model Config
+model_config = None
+
+# Global Projection Engine
+projection_engine = None
 
 def init_telemetry():
     """Initialize OpenTelemetry."""
@@ -134,6 +142,17 @@ async def lifespan(app: FastAPI):
     else:
         print("WARNING: Database service failed to connect")
 
+    # Initialize Dynamic Model Config
+    global model_config
+    if database_service.pool:
+        try:
+            model_config = await init_model_config(database_service.pool, cache_ttl=60)
+            print(f"Model configuration loaded: {len(model_config._cache)} models")
+        except Exception as e:
+            print(f"WARN: Model config initialization failed: {e}")
+    else:
+        print("WARN: Model config skipped (no database pool)")
+
     print("SDO Engine ready")
     print("Economics service ready")
     print("Verification Orchestra ready")
@@ -143,10 +162,25 @@ async def lifespan(app: FastAPI):
     sdo_engine.stream_callback = event_stream_callback
     print("Event Streaming initialized")
     
+    # Initialize Projection Engine
+    global projection_engine
+    try:
+        projection_engine = await init_projection_engine(
+            memory_service=memory_service,
+            database_service=database_service
+        )
+        # Start consuming events (non-blocking)
+        asyncio.create_task(projection_engine.start())
+        print("Projection Engine started")
+    except Exception as e:
+        print(f"WARN: Projection Engine initialization failed: {e}")
+    
     yield
 
     # Shutdown
     print("Shutting down AXIOM AI Service...")
+    if projection_engine:
+        await projection_engine.stop()
     await database_service.close()
 
 
@@ -226,13 +260,25 @@ async def health():
         providers_status = llm_service.get_available_providers() if hasattr(llm_service, 'get_available_providers') else {}
         default_provider = llm_service.default_provider if hasattr(llm_service, 'default_provider') else "mock"
         
+        # Check model config
+        model_config_status = None
+        if model_config:
+            model_config_status = model_config.get_cache_stats()
+        
+        # Check projection engine
+        projection_status = None
+        if projection_engine:
+            projection_status = projection_engine.get_stats()
+        
         return {
             "status": "healthy",
             "service": "axiom-ai",
-            "version": "0.5.0",
+            "version": "0.7.0",
             "database": db_status,
             "llm_providers": providers_status,
             "default_llm_provider": default_provider,
+            "model_config": model_config_status,
+            "projection_engine": projection_status,
             "memory": memory_health
         }
     except Exception as e:
@@ -742,6 +788,134 @@ async def get_session_cost(session_id: str = Path(..., description="Session ID")
     Get cost summary for a session.
     """
     return economics_service.get_session_summary(session_id)
+
+
+# ============================================================================
+# Model Configuration Endpoints (Design.md 3.3 - Dynamic Model Config)
+# ============================================================================
+
+class ModelConfigResponse(BaseModel):
+    name: str
+    provider: str
+    model_id: str
+    tier: str
+    cost_per_1k: float
+    accuracy: float
+    capabilities: Dict[str, Any]
+    is_active: bool
+
+
+class ModelsListResponse(BaseModel):
+    models: List[ModelConfigResponse]
+    count: int
+    cache_age_seconds: Optional[float] = None
+
+
+@app.get("/api/v1/models", response_model=ModelsListResponse)
+async def list_models(
+    tier: Optional[str] = Query(None, description="Filter by tier: local, balanced, high_accuracy, frontier"),
+    active_only: bool = Query(True, description="Only return active models")
+):
+    """
+    List available model configurations.
+    
+    Returns all models from the dynamic model config, optionally filtered by tier.
+    """
+    if not model_config:
+        raise HTTPException(status_code=503, detail="Model configuration not initialized")
+    
+    from model_config import ModelTier
+    
+    if tier:
+        try:
+            tier_enum = ModelTier(tier)
+            models = await model_config.get_models_by_tier(tier_enum)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid tier: {tier}. Use: local, balanced, high_accuracy, frontier")
+    else:
+        models = await model_config.get_all_active_models()
+    
+    stats = model_config.get_cache_stats()
+    
+    return ModelsListResponse(
+        models=[
+            ModelConfigResponse(
+                name=m.name,
+                provider=m.provider,
+                model_id=m.model_id,
+                tier=m.tier.value,
+                cost_per_1k=m.cost_per_1k,
+                accuracy=m.accuracy,
+                capabilities=m.capabilities,
+                is_active=m.is_active
+            )
+            for m in models
+        ],
+        count=len(models),
+        cache_age_seconds=stats.get("cache_age_seconds")
+    )
+
+
+@app.get("/api/v1/models/{model_name}", response_model=ModelConfigResponse)
+async def get_model(model_name: str = Path(..., description="Model name")):
+    """
+    Get a specific model configuration by name.
+    """
+    if not model_config:
+        raise HTTPException(status_code=503, detail="Model configuration not initialized")
+    
+    m = await model_config.get_model_by_name(model_name)
+    
+    if not m:
+        raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
+    
+    return ModelConfigResponse(
+        name=m.name,
+        provider=m.provider,
+        model_id=m.model_id,
+        tier=m.tier.value,
+        cost_per_1k=m.cost_per_1k,
+        accuracy=m.accuracy,
+        capabilities=m.capabilities,
+        is_active=m.is_active
+    )
+
+
+@app.get("/api/v1/models/default")
+async def get_default_model(
+    tier: Optional[str] = Query(None, description="Optional tier filter")
+):
+    """
+    Get the recommended default model.
+    
+    Selection criteria: highest accuracy within tier, then lowest cost.
+    """
+    if not model_config:
+        raise HTTPException(status_code=503, detail="Model configuration not initialized")
+    
+    from model_config import ModelTier
+    
+    tier_enum = None
+    if tier:
+        try:
+            tier_enum = ModelTier(tier)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid tier: {tier}")
+    
+    m = await model_config.get_default_model(tier_enum)
+    
+    if not m:
+        raise HTTPException(status_code=404, detail="No default model available")
+    
+    return {
+        "name": m.name,
+        "provider": m.provider,
+        "model_id": m.model_id,
+        "tier": m.tier.value,
+        "cost_per_1k": m.cost_per_1k,
+        "accuracy": m.accuracy,
+        "recommendation": f"Best {m.tier.value} model: {m.accuracy:.0%} accuracy at ${m.cost_per_1k}/1k tokens"
+    }
 
 
 # ============================================================================

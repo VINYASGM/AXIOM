@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // RateLimiter implements a simple token bucket rate limiter
@@ -79,7 +80,11 @@ func RateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 		// Try to get user ID from context (set by auth middleware)
 		key := c.ClientIP()
 		if userID, exists := c.Get("user_id"); exists {
-			key = userID.(string)
+			if id, ok := userID.(string); ok {
+				key = id
+			} else if id, ok := userID.(uuid.UUID); ok {
+				key = id.String()
+			}
 		}
 
 		if !rl.Allow(key) {

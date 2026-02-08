@@ -147,3 +147,46 @@ ALTER TABLE users ADD CONSTRAINT fk_users_org FOREIGN KEY (org_id) REFERENCES or
 INSERT INTO users (email, name, password_hash, role, trust_dial_default)
 VALUES ('dev@axiom.local', 'Dev User', crypt('password', gen_salt('bf')), 'admin', 7)
 ON CONFLICT (email) DO NOTHING;
+
+-- Model configurations for DynamicModelConfig
+CREATE TABLE IF NOT EXISTS model_configurations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) UNIQUE NOT NULL,
+    provider VARCHAR(100) NOT NULL,
+    model_id VARCHAR(255) NOT NULL,
+    tier VARCHAR(50) NOT NULL, -- 'local', 'balanced', 'high_accuracy', 'frontier'
+    cost_per_1k_tokens DECIMAL(10, 6) DEFAULT 0,
+    accuracy_score FLOAT DEFAULT 0.5 CHECK (accuracy_score >= 0 AND accuracy_score <= 1),
+    capabilities JSONB DEFAULT '{}',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_configs_tier ON model_configurations(tier);
+CREATE INDEX IF NOT EXISTS idx_model_configs_active ON model_configurations(is_active);
+
+-- Seed default models
+INSERT INTO model_configurations (name, provider, model_id, tier, cost_per_1k_tokens, accuracy_score, capabilities)
+VALUES 
+    ('mock', 'mock', 'mock-fast', 'local', 0.0, 0.5, '{"testing": true}'::jsonb),
+    ('qwen3-8b', 'local', 'qwen3-8b', 'local', 0.0, 0.70, '{"privacy": true, "speed": true}'::jsonb),
+    ('deepseek-v3', 'deepseek', 'deepseek-chat', 'balanced', 0.002, 0.90, '{"code_generation": true, "speed": true}'::jsonb),
+    ('gpt-4-turbo', 'openai', 'gpt-4-turbo', 'high_accuracy', 0.03, 0.88, '{"code_generation": true, "analysis": true}'::jsonb),
+    ('claude-sonnet', 'anthropic', 'claude-3-5-sonnet-latest', 'high_accuracy', 0.015, 0.92, '{"code_generation": true, "reasoning": true}'::jsonb),
+    ('claude-opus', 'anthropic', 'claude-3-opus-20240229', 'frontier', 0.075, 0.95, '{"novel_problems": true, "complex_reasoning": true}'::jsonb)
+ON CONFLICT (name) DO UPDATE SET
+    cost_per_1k_tokens = EXCLUDED.cost_per_1k_tokens,
+    accuracy_score = EXCLUDED.accuracy_score,
+    capabilities = EXCLUDED.capabilities,
+    updated_at = NOW();
+
+-- Projection stats table for event sourcing
+CREATE TABLE IF NOT EXISTS projection_stats (
+    entity_id UUID NOT NULL,
+    stat_type VARCHAR(100) NOT NULL,
+    value INTEGER DEFAULT 0,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    PRIMARY KEY (entity_id, stat_type)
+);
+

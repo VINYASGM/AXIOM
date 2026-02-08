@@ -180,6 +180,61 @@ class DatabaseService:
             );
         """)
 
+        # =====================================================================
+        # Model Configuration Table - Dynamic Model Config (Design.md 3.3)
+        # =====================================================================
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS model_configurations (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT NOT NULL UNIQUE,
+                provider TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                tier TEXT NOT NULL CHECK (tier IN ('local', 'balanced', 'high_accuracy', 'frontier')),
+                cost_per_1k_tokens DECIMAL(10,6) NOT NULL DEFAULT 0.0,
+                accuracy_score DECIMAL(3,2) CHECK (accuracy_score BETWEEN 0 AND 1),
+                capabilities JSONB DEFAULT '{}'::jsonb,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS model_configurations_tier_idx 
+                ON model_configurations (tier, is_active);
+            CREATE INDEX IF NOT EXISTS model_configurations_provider_idx 
+                ON model_configurations (provider);
+        """)
+
+        # Seed default model configurations if table is empty
+        existing = await conn.fetchval("SELECT COUNT(*) FROM model_configurations")
+        if existing == 0:
+            await conn.execute("""
+                INSERT INTO model_configurations (name, provider, model_id, tier, cost_per_1k_tokens, accuracy_score, capabilities) VALUES
+                ('deepseek-v3', 'deepseek', 'deepseek-chat', 'balanced', 0.002, 0.90, '{"code_generation": true, "reasoning": true}'::jsonb),
+                ('claude-sonnet-4', 'anthropic', 'claude-sonnet-4-20250514', 'high_accuracy', 0.015, 0.92, '{"code_generation": true, "reasoning": true, "long_context": true}'::jsonb),
+                ('gpt-4o', 'openai', 'gpt-4o-2024-11-20', 'high_accuracy', 0.030, 0.91, '{"code_generation": true, "vision": true}'::jsonb),
+                ('gpt-4-turbo', 'openai', 'gpt-4-turbo', 'high_accuracy', 0.030, 0.88, '{"code_generation": true}'::jsonb),
+                ('qwen3-8b', 'local', 'qwen3-8b-instruct', 'local', 0.000, 0.75, '{"code_generation": true}'::jsonb),
+                ('mock', 'mock', 'mock-fast', 'local', 0.000, 0.50, '{"code_generation": true, "testing": true}'::jsonb)
+                ON CONFLICT (name) DO NOTHING;
+            """)
+
+        # =====================================================================
+        # Projection Stats Table - Read Model Aggregates (Design.md 2.2)
+        # =====================================================================
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS projection_stats (
+                entity_id UUID NOT NULL,
+                stat_type TEXT NOT NULL,
+                value BIGINT DEFAULT 0,
+                metadata JSONB DEFAULT '{}'::jsonb,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (entity_id, stat_type)
+            );
+
+            CREATE INDEX IF NOT EXISTS projection_stats_entity_idx 
+                ON projection_stats (entity_id);
+        """)
+
 
     async def save_sdo(self, sdo_data: Dict[str, Any]):
         """

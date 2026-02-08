@@ -10,7 +10,8 @@ import {
   Radio,
   FlaskConical,
   CheckCircle2,
-  Box
+  Box,
+  Users
 } from 'lucide-react';
 import { IVCU, IVCUStatus } from './types';
 import IntentCanvas from './components/IntentCanvas';
@@ -22,6 +23,7 @@ import Terminal from './components/Terminal';
 import TestHub from './components/TestHub';
 import AdaptiveScaffolding from './components/AdaptiveScaffolding';
 import CounterfactualPanel from './components/CounterfactualPanel';
+import TeamPanel from './components/TeamPanel';
 
 // --- Kinetic UI Elements ---
 
@@ -53,7 +55,7 @@ const ScrambleText: React.FC<{ text: string, className?: string, duration?: numb
 
 const App: React.FC = () => {
   // const [booting, setBooting] = useState(false); // Removed boot sequence logic
-  const [activeTab, setActiveTab] = useState<'canvas' | 'graph' | 'monitor' | 'tests'>('canvas');
+  const [activeTab, setActiveTab] = useState<'canvas' | 'graph' | 'monitor' | 'tests' | 'team'>('canvas');
   const [ivcuHistory, setIvcuHistory] = useState<IVCU[]>([]);
   const [currentIvcu, setCurrentIvcu] = useState<IVCU | null>(null);
   const [showCounterfactual, setShowCounterfactual] = useState(false);
@@ -93,6 +95,7 @@ const App: React.FC = () => {
             <NavItem active={activeTab === 'graph'} onClick={() => setActiveTab('graph')} icon={<Database size={26} />} label="Memory Graph" />
             <NavItem active={activeTab === 'monitor'} onClick={() => setActiveTab('monitor')} icon={<Activity size={26} />} label="Health Monitor" />
             <NavItem active={activeTab === 'tests'} onClick={() => setActiveTab('tests')} icon={<FlaskConical size={26} />} label="Test Suite" />
+            <NavItem active={activeTab === 'team'} onClick={() => setActiveTab('team')} icon={<Users size={26} />} label="Team Access" />
           </div>
 
           <div className="mt-auto space-y-12 pb-12">
@@ -191,6 +194,17 @@ const App: React.FC = () => {
                   className="h-full p-12"
                 >
                   <TestHub />
+                </div>
+              )}
+
+              {activeTab === 'team' && (
+                <div className="h-full p-12 max-w-4xl mx-auto">
+                  <h2 className="text-2xl font-bold text-white mb-8 flex items-center gap-3">
+                    <Users className="text-sky-400" />
+                    Project Team
+                  </h2>
+                  {/* Hardcoded projectId for now until we have project context */}
+                  <TeamPanel projectId="default-project" />
                 </div>
               )}
             </div>

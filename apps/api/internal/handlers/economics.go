@@ -6,21 +6,24 @@ import (
 	"net/http"
 
 	"github.com/axiom/api/internal/database"
+	"github.com/axiom/api/internal/economics"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
 type EconomicsHandler struct {
-	db           *database.Postgres
-	aiServiceURL string
-	logger       *zap.Logger
+	db              *database.Postgres
+	aiServiceURL    string
+	logger          *zap.Logger
+	economicService *economics.Service
 }
 
-func NewEconomicsHandler(db *database.Postgres, aiServiceURL string, logger *zap.Logger) *EconomicsHandler {
+func NewEconomicsHandler(db *database.Postgres, aiServiceURL string, logger *zap.Logger, economicService *economics.Service) *EconomicsHandler {
 	return &EconomicsHandler{
-		db:           db,
-		aiServiceURL: aiServiceURL,
-		logger:       logger,
+		db:              db,
+		aiServiceURL:    aiServiceURL,
+		logger:          logger,
+		economicService: economicService,
 	}
 }
 

@@ -95,6 +95,99 @@ export const snapshotState = async (sdoId: string) => {
   }
 };
 
+// ============================================================================
+// Model Configuration API (Dynamic Model Config)
+// ============================================================================
+
+export interface ModelConfig {
+  name: string;
+  provider: string;
+  model_id: string;
+  tier: string;
+  cost_per_1k: number;
+  accuracy: number;
+  capabilities: Record<string, any>;
+  is_active: boolean;
+}
+
+export interface ModelsResponse {
+  models: ModelConfig[];
+  count: number;
+  cache_age_seconds: number | null;
+}
+
+/**
+ * Fetch available model configurations from the backend.
+ * @param tier Optional tier filter: 'local', 'balanced', 'high_accuracy', 'frontier'
+ */
+export const getModels = async (tier?: string): Promise<ModelsResponse> => {
+  try {
+    const url = tier
+      ? `${API_BASE}/api/v1/models?tier=${tier}`
+      : `${API_BASE}/api/v1/models`;
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("Models fetch failed");
+    return await response.json();
+  } catch (e) {
+    console.error("Get Models Error:", e);
+    return { models: [], count: 0, cache_age_seconds: null };
+  }
+};
+
+/**
+ * Get the recommended default model.
+ * @param tier Optional tier filter
+ */
+export const getDefaultModel = async (tier?: string): Promise<ModelConfig | null> => {
+  try {
+    const url = tier
+      ? `${API_BASE}/api/v1/models/default?tier=${tier}`
+      : `${API_BASE}/api/v1/models/default`;
+
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (e) {
+    console.error("Get Default Model Error:", e);
+    return null;
+  }
+};
+
+/**
+ * Estimate cost for a generation request.
+ * @param intent The intent text
+ * @param model Model name (e.g., 'deepseek-v3')
+ */
+export const getEstimatedCost = async (intent: string, model: string = "deepseek-v3"): Promise<{
+  estimated_cost_usd: number;
+  input_tokens: number;
+  output_tokens: number;
+  model: string;
+}> => {
+  try {
+    const response = await fetch(`${API_BASE}/cost/estimate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        intent,
+        model
+      })
+    });
+
+    if (!response.ok) throw new Error("Cost estimate failed");
+    return await response.json();
+  } catch (e) {
+    console.error("Cost Estimate Error:", e);
+    return {
+      estimated_cost_usd: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      model: "unknown"
+    };
+  }
+};
+
 export const getGraphData = async () => {
   try {
     const response = await fetch(`${API_BASE}/api/v1/graph`);

@@ -119,7 +119,7 @@ func (h *IntentHandler) CreateIVCU(c *gin.Context) {
 	}
 
 	// Convert contracts and params to JSON
-	contractsJSON, _ := json.Marshal(req.Contracts)
+	contractsJSON, _ := json.Marshal(ivcu.Contracts)
 	paramsJSON, _ := json.Marshal(ivcu.GenerationParams)
 
 	query := `

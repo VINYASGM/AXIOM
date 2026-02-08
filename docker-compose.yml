@@ -243,7 +243,7 @@ services:
     image: temporalio/ui:latest
     container_name: axiom-temporal-ui
     ports:
-      - "8233:8080"
+      - "8088:8080"
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000

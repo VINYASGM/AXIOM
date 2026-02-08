@@ -2,10 +2,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, LayoutGroup, AnimatePresence, useSpring, useMotionValue, useTransform } from 'framer-motion';
 import {
-  Send, Wand2, Undo2, Redo2, Activity, CheckCircle2, Clock, AlertCircle, ChevronRight, ChevronDown, ChevronUp, Info, Image as ImageIcon, X, Sparkles, Layers as LayersIcon, Terminal as TerminalIcon, ShieldCheck, Zap, Box, Cpu, Fingerprint, Save, History, Code, Copy, Lock, XCircle
+  Send, Wand2, Undo2, Redo2, Activity, CheckCircle2, Clock, AlertCircle, ChevronRight, ChevronDown, ChevronUp, Info, Image as ImageIcon, X, Sparkles, Layers as LayersIcon, Terminal as TerminalIcon, ShieldCheck, Zap, Box, Cpu, Fingerprint, Save, History, Code, Copy, Lock, XCircle, DollarSign
 } from 'lucide-react';
-import { parseIntent, generateVerifiedCode, generateIntentVisual, snapshotState } from '../services/geminiService';
-import { IVCU, IVCUStatus, ModelTier, VerificationTier } from '../types';
+import { parseIntent, generateVerifiedCode, generateIntentVisual, snapshotState, getEstimatedCost } from '../services/geminiService';
+import { ApiClient } from '../lib/api';
+import { IVCU, IVCUStatus, ModelTier, VerificationTier, SpeculationResult } from '../types';
 import Button from './Button';
 import Tooltip from './Tooltip';
 import { ScaffoldingLevel } from './AdaptiveScaffolding'; // Import enum
@@ -121,12 +122,15 @@ const IntentCanvas: React.FC<Props> = ({ onGenerated, addLog, scaffoldingLevel =
   const [lastVerifiedIvcu, setLastVerifiedIvcu] = useState<IVCU | null>(null);
   const [validation, setValidation] = useState<ValidationResult>({ isValid: true, errors: [] });
   const [mode, setMode] = useState<'natural' | 'code'>('natural'); // Added mode
+  const [costEstimate, setCostEstimate] = useState<{ cost: number; tokens: number } | null>(null);
+  const [speculation, setSpeculation] = useState<SpeculationResult | null>(null);
 
   // Initialize Tree-sitter
   useEffect(() => {
     initTreeSitter().catch(console.error);
   }, []);
 
+  // Validate code when input changes (debounced)
   // Validate code when input changes (debounced)
   useEffect(() => {
     if (intent.trim()) {
@@ -173,10 +177,17 @@ const IntentCanvas: React.FC<Props> = ({ onGenerated, addLog, scaffoldingLevel =
             console.error("Tree-sitter parse error:", e);
           }
         }
-      }, 500);
+
+        // Fetch Speculation if intent is substantial
+        if (intent.trim().length > 20) {
+          const spec = await ApiClient.speculateIntent(intent);
+          setSpeculation(spec);
+        }
+      }, 800);
       return () => clearTimeout(timer);
     } else {
       setValidation({ isValid: true, errors: [] });
+      setSpeculation(null);
     }
   }, [intent]);
 
@@ -302,7 +313,19 @@ const IntentCanvas: React.FC<Props> = ({ onGenerated, addLog, scaffoldingLevel =
     setIntent(val);
     if (error) setError(null);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => pushToChronology(val), 800);
+    debounceTimer.current = setTimeout(() => {
+      pushToChronology(val);
+      // Estimate cost when intent changes (debounced)
+      if (val.trim().length >= MIN_INTENT_LENGTH) {
+        getEstimatedCost(val, model === ModelTier.Frontier ? 'claude-sonnet-4' : 'deepseek-v3')
+          .then(result => {
+            setCostEstimate({ cost: result.estimated_cost_usd, tokens: result.input_tokens + result.output_tokens });
+          })
+          .catch(() => setCostEstimate(null));
+      } else {
+        setCostEstimate(null);
+      }
+    }, 800);
   };
 
   const handleSubmit = async () => {
@@ -515,8 +538,56 @@ const IntentCanvas: React.FC<Props> = ({ onGenerated, addLog, scaffoldingLevel =
                   {intent.length} / {MIN_INTENT_LENGTH} MIN_BUF
                 </span>
               </div>
+
+              {/* Live Cost Estimate Badge */}
+              <AnimatePresence mode="wait">
+                {costEstimate && isIntentValid && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9, x: 20 }}
+                    animate={{ opacity: 1, scale: 1, x: 0 }}
+                    exit={{ opacity: 0, scale: 0.9, x: 20 }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
+                  >
+                    <DollarSign size={14} className="opacity-70" />
+                    <span className="text-[11px] mono font-bold">
+                      ${costEstimate.cost.toFixed(4)}
+                    </span>
+                    <span className="text-[10px] mono text-emerald-500/60">
+                      ~{costEstimate.tokens.toLocaleString()} tok
+                    </span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
+
+          {/* Speculation Engine Output */}
+          <AnimatePresence>
+            {speculation && speculation.paths.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <Sparkles size={14} className="text-amber-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Speculative Paths Detected</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {speculation.paths.map((path) => (
+                    <div key={path.id} className="p-4 rounded-2xl bg-white/5 border border-white/5 hover:border-amber-500/30 transition-colors group cursor-pointer">
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-xs font-bold text-slate-300">{path.label}</span>
+                        <span className="text-[10px] mono text-amber-400">{(path.probability * 100).toFixed(0)}%</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">{path.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Logic Controller Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-24 pt-16 border-t border-white/5">

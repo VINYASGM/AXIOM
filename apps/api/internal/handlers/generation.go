@@ -1,31 +1,39 @@
 package handlers
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"time"
 
 	"github.com/axiom/api/internal/database"
+	"github.com/axiom/api/internal/economics"
 	"github.com/axiom/api/internal/middleware"
 	"github.com/axiom/api/internal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/client"
 	"go.uber.org/zap"
 )
 
 // GenerationHandler handles code generation endpoints
 type GenerationHandler struct {
-	db           *database.Postgres
-	aiServiceURL string
-	logger       *zap.Logger
+	db              *database.Postgres
+	aiServiceURL    string
+	logger          *zap.Logger
+	economicService *economics.Service
+	temporalClient  client.Client
 }
 
 // NewGenerationHandler creates a new generation handler
-func NewGenerationHandler(db *database.Postgres, aiServiceURL string, logger *zap.Logger) *GenerationHandler {
-	return &GenerationHandler{db: db, aiServiceURL: aiServiceURL, logger: logger}
+func NewGenerationHandler(db *database.Postgres, aiServiceURL string, logger *zap.Logger, economicService *economics.Service, temporalClient client.Client) *GenerationHandler {
+	return &GenerationHandler{
+		db:              db,
+		aiServiceURL:    aiServiceURL,
+		logger:          logger,
+		economicService: economicService,
+		temporalClient:  temporalClient,
+	}
 }
 
 // StartGenerationRequest is the request body for starting generation
@@ -60,15 +68,38 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 		return
 	}
 
-	// Fetch the IVCU
-	query := `SELECT raw_intent, contracts, generation_params FROM ivcus WHERE id = $1`
+	// Fetch the IVCU and Project ID
+	query := `SELECT project_id, raw_intent, contracts, generation_params FROM ivcus WHERE id = $1`
+	var projectID uuid.UUID
 	var rawIntent string
 	var contractsJSON []byte
 	var generationParamsJSON []byte
 
-	err := h.db.Pool().QueryRow(c.Request.Context(), query, req.IVCUID).Scan(&rawIntent, &contractsJSON, &generationParamsJSON)
+	err := h.db.Pool().QueryRow(c.Request.Context(), query, req.IVCUID).Scan(&projectID, &rawIntent, &contractsJSON, &generationParamsJSON)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "IVCU not found"})
+		return
+	}
+
+	// 1. Check Budget
+	estimatedCost := 0.05 // Base cost
+	if req.CandidateCount > 0 {
+		estimatedCost = float64(req.CandidateCount) * 0.02
+	}
+
+	budgetStatus, err := h.economicService.CheckBudget(c.Request.Context(), projectID, estimatedCost)
+	if err != nil {
+		h.logger.Error("failed to check budget", zap.Error(err))
+		// Fail open or closed? Closed for now.
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check budget"})
+		return
+	}
+
+	if !budgetStatus.Allowed {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"error":   "insufficient budget",
+			"details": budgetStatus,
+		})
 		return
 	}
 
@@ -87,7 +118,7 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 	h.db.Pool().Exec(c.Request.Context(), updateQuery, req.IVCUID)
 
 	// Call AI service to generate code
-	go h.generateCode(req.IVCUID, sdoID, rawIntent, req.Language, userID, req.CandidateCount, req.Strategy)
+	go h.generateCode(req.IVCUID, projectID, sdoID, rawIntent, req.Language, userID, req.CandidateCount, req.Strategy, estimatedCost)
 
 	generationID := uuid.New()
 	c.JSON(http.StatusAccepted, gin.H{
@@ -98,8 +129,8 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 	})
 }
 
-// generateCode calls the AI service to generate code (runs async)
-func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, sdoID string, intent string, language string, userID uuid.UUID, candidateCount int, strategy string) {
+// generateCode calls the AI service to generate code (runs async via Temporal)
+func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, projectID uuid.UUID, sdoID string, intent string, language string, userID uuid.UUID, candidateCount int, strategy string, estimatedCost float64) {
 	startTime := time.Now()
 
 	// Default values
@@ -110,72 +141,60 @@ func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, sdoID string, intent 
 		strategy = "simple"
 	}
 
-	// Determine endpoint and body based on strategy
-	endpoint := "/generate"
-	reqBody := map[string]interface{}{
-		"sdo_id":   sdoID,
-		"intent":   intent,
-		"language": language,
+	// Prepare Temporal Workflow Input
+	input := models.GenerationInput{
+		SDOID:          sdoID,
+		Intent:         intent,
+		Constraints:    []string{}, // Extract constraints if available
+		Language:       language,
+		CandidateCount: candidateCount,
+		ModelTier:      "balanced",
 	}
 
-	if strategy == "parallel" || strategy == "adaptive" {
-		endpoint = "/generate/parallel"
-		if strategy == "adaptive" {
-			endpoint = "/generate/adaptive"
-			reqBody["early_stop_threshold"] = 0.9
-		} else {
-			reqBody["candidate_count"] = candidateCount
-		}
+	workflowOptions := client.StartWorkflowOptions{
+		ID:        "generation-" + ivcuID.String(),
+		TaskQueue: "axiom-ai-queue",
 	}
 
-	jsonBody, _ := json.Marshal(reqBody)
+	// Use background context for async DB operations
+	ctx := context.Background()
 
-	// Call AI service
-	resp, err := http.Post(h.aiServiceURL+endpoint, "application/json", bytes.NewBuffer(jsonBody))
+	// Check if Temporal is available
+	if h.temporalClient == nil {
+		h.logger.Error("Temporal client not initialized")
+		// Mark IVCU as failed
+		query := `UPDATE ivcus SET status = $1, updated_at = NOW() WHERE id = $2`
+		h.db.Pool().Exec(ctx, query, models.IVCUStatusFailed, ivcuID)
+		return
+	}
+
+	// Execute Workflow
+	we, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, "CodeGenerationWorkflow", input)
 
 	var code string
 	var confidence float64 = 0.0
 	var modelID string = "gpt-4"
 	status := models.IVCUStatusFailed
-	// var verificationResult []byte
+	success := false
+	actualCost := 0.0
 
-	// Use background context for async DB operations
-	ctx := context.Background()
-
-	if err == nil && resp.StatusCode == http.StatusOK {
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-
-		if strategy == "simple" {
-			var result struct {
-				Code       string  `json:"code"`
-				Confidence float64 `json:"confidence"`
-				ModelID    string  `json:"model_id"`
-			}
-			if json.Unmarshal(body, &result) == nil {
-				code = result.Code
-				confidence = result.Confidence
-				modelID = result.ModelID
-				status = models.IVCUStatusVerifying
-			}
-		} else {
-			// Handle complex response for parallel/adaptive
-			var result struct {
-				SelectedCode string  `json:"selected_code"`
-				Confidence   float64 `json:"confidence"`
-				Status       string  `json:"status"`
-			}
-			if json.Unmarshal(body, &result) == nil {
-				code = result.SelectedCode
-				confidence = result.Confidence
-				status = models.IVCUStatusVerified // Usually parallel returns verified result
-				if result.Status != "verified" {
-					status = models.IVCUStatusVerifying // Or back to verifying if not fully done
-				}
-			}
-		}
+	if err != nil {
+		h.logger.Error("failed to start workflow", zap.Error(err))
 	} else {
-		h.logger.Error("AI generation failed", zap.Error(err))
+		// Wait for result (in this goroutine)
+		var output models.GenerationOutput
+		err = we.Get(ctx, &output)
+
+		if err == nil {
+			success = true
+			code = output.SelectedCode
+			status = models.IVCUStatusVerified // Workflows include verification
+			actualCost = output.TotalCost
+			// Confidence?
+			confidence = 0.95 // Placeholder or extract from output
+		} else {
+			h.logger.Error("workflow execution failed", zap.Error(err))
+		}
 	}
 
 	latency := time.Since(startTime).Milliseconds()
@@ -189,18 +208,35 @@ func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, sdoID string, intent 
 	`
 	h.db.Pool().Exec(ctx, query, code, language, confidence, modelID, status, ivcuID)
 
+	// Record actual usage
+	if !success {
+		actualCost = estimatedCost * 0.1 // Small charge for failure handling?
+	}
+
+	err = h.economicService.RecordUsage(ctx, projectID, userID, actualCost, "code_generation", map[string]interface{}{
+		"ivcu_id":     ivcuID,
+		"tokens_in":   len(intent),
+		"tokens_out":  len(code),
+		"strategy":    strategy,
+		"workflow_id": we.GetID(),
+		"run_id":      we.GetRunID(),
+	})
+	if err != nil {
+		h.logger.Error("failed to record usage", zap.Error(err))
+	}
+
 	// Log generation
 	logQuery := `
 		INSERT INTO generation_logs (id, ivcu_id, model_id, tokens_in, tokens_out, latency_ms, cost, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 	`
-	h.db.Pool().Exec(ctx, logQuery, uuid.New(), ivcuID, modelID, len(intent), len(code), latency, 0.01)
+	h.db.Pool().Exec(ctx, logQuery, uuid.New(), ivcuID, modelID, len(intent), len(code), latency, actualCost)
 
 	h.logger.Info("generation completed",
 		zap.String("ivcu_id", ivcuID.String()),
 		zap.String("status", string(status)),
 		zap.Int64("latency_ms", latency),
-		zap.String("strategy", strategy),
+		zap.String("workflow_id", we.GetID()),
 	)
 }
 
@@ -232,6 +268,23 @@ func (h *GenerationHandler) GetGenerationStatus(c *gin.Context) {
 	case models.IVCUStatusGenerating:
 		progress = 0.5
 		stage = "generating"
+
+		// Query Temporal for more details
+		if h.temporalClient != nil {
+			workflowID := "generation-" + ivcuID.String()
+			desc, err := h.temporalClient.DescribeWorkflowExecution(c.Request.Context(), workflowID, "")
+			if err == nil && desc.WorkflowExecutionInfo != nil {
+				// Map Temporal status (Running, Completed, Failed, etc.)
+				// We can also look at PendingActivities if we want deep details
+				if desc.WorkflowExecutionInfo.Status.String() == "WORKFLOW_EXECUTION_STATUS_RUNNING" {
+					stage = "processing_workflow"
+					if len(desc.PendingActivities) > 0 {
+						stage = "activity:" + desc.PendingActivities[0].ActivityType.Name
+					}
+				}
+			}
+		}
+
 	case models.IVCUStatusVerifying:
 		progress = 0.75
 		stage = "verifying"

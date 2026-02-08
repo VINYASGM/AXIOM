@@ -44,3 +44,31 @@ export interface MemoryEdge {
   source: string;
   target: string;
 }
+
+export interface TeamMember {
+  id: string;
+  email: string;
+  role: 'owner' | 'admin' | 'editor' | 'viewer';
+  avatar_url?: string;
+}
+
+export interface SpeculationPath {
+  id: string;
+  label: string;
+  probability: number;
+  impact_score: number;
+  description: string;
+}
+
+export interface SpeculationResult {
+  intent: string;
+  paths: SpeculationPath[];
+  recommended_path_id: string;
+}
+
+export interface ProjectEconomics {
+  budget_limit: number;
+  current_usage: number;
+  remaining_budget: number;
+  project_id: string;
+}

@@ -1,0 +1,16 @@
+basePath: /api/v1
+host: localhost:8080
+info:
+  contact: {}
+  description: Core API for AXIOM Autonomous eXecution with Intent-Oriented Modeling.
+  title: AXIOM API
+  version: 0.1.0
+paths: {}
+schemes:
+- http
+securityDefinitions:
+  Bearer:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
