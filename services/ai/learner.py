@@ -103,6 +103,7 @@ class LearnerModel:
         """Get learned constraints."""
         return self.store.get_relevant_lessons(intent)
 
+    async def update_skill(self, user_id: str, domain: str, delta: int):
         """
         Update a user's skill level in a specific domain.
         """
@@ -120,13 +121,20 @@ class LearnerModel:
              }
         
         current_skills = profile.get("skills", {})
+        if not current_skills:
+            current_skills = {}
+            
         current_val = current_skills.get(domain, 0)
-        current_skills[domain] = max(0, min(10, current_val + delta)) # Clamp 0-10
+        new_val = max(0, min(10, current_val + delta)) # Clamp 0-10
+        current_skills[domain] = new_val
         
         profile["skills"] = current_skills
         
         # Record event in history
         history = profile.get("history", [])
+        if not history:
+            history = []
+            
         history.append({
             "event": "skill_update",
             "domain": domain,
@@ -137,6 +145,7 @@ class LearnerModel:
         
         await self.db.save_learner_profile(profile)
         print(f"LEARNER: Updated skill {domain} for {user_id} to {current_skills[domain]}")
+        return current_skills
 
     async def get_profile(self, user_id: str) -> Dict[str, Any]:
         """

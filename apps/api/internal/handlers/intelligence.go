@@ -36,30 +36,35 @@ func (h *IntelligenceHandler) GetUserLearner(c *gin.Context) {
 		return
 	}
 
-	query := `SELECT skill, proficiency FROM user_skills WHERE user_id = $1`
-	rows, err := h.db.Pool().Query(c.Request.Context(), query, userID)
-	if err != nil {
-		h.logger.Error("failed to fetch skills", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch user skills"})
-		return
-	}
-	defer rows.Close()
+	query := `SELECT skills, learning_style, updated_at FROM learner_models WHERE user_id = $1`
+	var skillsJSON []byte
+	var styleJSON []byte
+	var updatedAt time.Time
+
+	err := h.db.Pool().QueryRow(c.Request.Context(), query, userID).Scan(&skillsJSON, &styleJSON, &updatedAt)
 
 	skills := make(map[string]int)
-	totalProficiency := 0
-	count := 0
 
-	for rows.Next() {
-		var skill string
-		var proficiency int
-		if err := rows.Scan(&skill, &proficiency); err == nil {
-			skills[skill] = proficiency
-			totalProficiency += proficiency
-			count++
+	if err != nil {
+		// If not found, return empty profile (DB initializes on first event or we return default)
+		h.logger.Info("Learner profile not found, returning default", zap.String("user_id", userID.String()))
+		// Default empty
+	} else {
+		if len(skillsJSON) > 0 {
+			if err := json.Unmarshal(skillsJSON, &skills); err != nil {
+				h.logger.Error("failed to unmarshal skills", zap.Error(err))
+			}
 		}
 	}
 
 	// Calculate global level
+	totalProficiency := 0
+	count := 0
+	for _, p := range skills {
+		totalProficiency += p
+		count++
+	}
+
 	avg := 0.0
 	if count > 0 {
 		avg = float64(totalProficiency) / float64(count)
@@ -76,7 +81,7 @@ func (h *IntelligenceHandler) GetUserLearner(c *gin.Context) {
 		UserID:      userID,
 		GlobalLevel: globalLevel,
 		Skills:      skills,
-		LastUpdated: time.Now(),
+		LastUpdated: updatedAt,
 	})
 }
 
@@ -166,32 +171,64 @@ func (h *IntelligenceHandler) PostLearningEvent(c *gin.Context) {
 
 	// Call AI Service
 	jsonBody, _ := json.Marshal(req)
+	h.logger.Info("calling AI service for learning event", zap.String("url", h.aiServiceURL+"/learner/event"))
+
 	resp, err := http.Post(h.aiServiceURL+"/learner/event", "application/json", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		h.logger.Error("failed to call AI service for learning event", zap.Error(err))
-		// Don't fail the request completely for analytics
-		c.JSON(http.StatusAccepted, gin.H{"status": "queued"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})
 		return
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
+	h.logger.Info("AI service response", zap.Int("status", resp.StatusCode))
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		var result struct {
 			UpdatedSkills map[string]int `json:"updated_skills"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err == nil && len(result.UpdatedSkills) > 0 {
-			// Update local DB
-			for skill, delta := range result.UpdatedSkills {
-				query := `
-					INSERT INTO user_skills (user_id, skill, proficiency, last_updated)
-					VALUES ($1, $2, $3, NOW())
-					ON CONFLICT (user_id, skill) 
-					DO UPDATE SET proficiency = user_skills.proficiency + $3, last_updated = NOW()
+		if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
+			h.logger.Info("AI service returned updated skills", zap.Any("skills", result.UpdatedSkills))
+			if len(result.UpdatedSkills) > 0 {
+				// 1. Read existing
+				var existingSkillsJSON []byte
+				queryRead := `SELECT skills FROM learner_models WHERE user_id = $1`
+				err := h.db.Pool().QueryRow(c.Request.Context(), queryRead, userID.String()).Scan(&existingSkillsJSON)
+
+				currentSkills := make(map[string]int)
+				if err == nil && len(existingSkillsJSON) > 0 {
+					_ = json.Unmarshal(existingSkillsJSON, &currentSkills)
+				} else {
+					h.logger.Info("no existing profile found locally, creating new")
+				}
+
+				// 2. Merge
+				for k, v := range result.UpdatedSkills {
+					currentSkills[k] = v
+				}
+
+				// 3. Write back
+				mergedJSON, _ := json.Marshal(currentSkills)
+				queryUpsert := `
+					INSERT INTO learner_models (user_id, skills, updated_at)
+					VALUES ($1, $2, NOW())
+					ON CONFLICT (user_id) 
+					DO UPDATE SET skills = $2, updated_at = NOW()
 				`
-				h.db.Pool().Exec(c.Request.Context(), query, userID, skill, delta)
+				_, err = h.db.Pool().Exec(c.Request.Context(), queryUpsert, userID.String(), mergedJSON)
+				if err != nil {
+					h.logger.Error("failed to update learner profile locally", zap.Error(err))
+				} else {
+					h.logger.Info("learner profile updated locally")
+				}
 			}
+		} else {
+			h.logger.Error("failed to decode AI service response", zap.Error(err))
 		}
+
+		c.JSON(http.StatusOK, gin.H{"status": "processed", "updated_skills": result.UpdatedSkills})
+		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "processed"})
+	c.JSON(http.StatusBadGateway, gin.H{"error": "AI service returned non-200 status", "status": resp.StatusCode})
 }

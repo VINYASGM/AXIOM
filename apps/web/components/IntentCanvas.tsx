@@ -11,6 +11,8 @@ import Button from './Button';
 import Tooltip from './Tooltip';
 import { ScaffoldingLevel } from './AdaptiveScaffolding'; // Import enum
 import { initTreeSitter, getParser, SupportedLanguage } from '../lib/tree-sitter';
+import { AdaptiveWrapper } from './AdaptiveWrapper';
+import { useLearnerStore, SkillDomain } from '../src/store/learnerStore';
 
 interface Props {
   onGenerated: (ivcu: IVCU) => void;
@@ -409,6 +411,14 @@ const IntentCanvas: React.FC<Props> = ({ onGenerated, addLog, scaffoldingLevel =
       onGenerated(updatedIvcu);
       setSynthesisStep('complete');
       addLog("CONSENSUS: Synthesis finalized successfully.");
+
+      // Record Learning Event
+      useLearnerStore.getState().recordEvent("generation_accepted", {
+        ivcu_id: updatedIvcu.id,
+        complexity: complexity,
+        model: model
+      });
+
       setTimeout(() => setSynthesisStep('idle'), 3000);
     } catch (err) {
       addLog("FATAL: Semantic synthesis loop collapsed.");
@@ -615,76 +625,110 @@ const IntentCanvas: React.FC<Props> = ({ onGenerated, addLog, scaffoldingLevel =
 
           {/* Logic Controller Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-24 pt-16 border-t border-white/5">
-            <div className="space-y-12">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-5">
-                  <LayersIcon size={20} className="text-slate-500" />
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.4em] mono">Logic Depth Index</span>
+            <AdaptiveWrapper
+              requiredSkill={SkillDomain.ArchitecturalReasoning}
+              minLevel={3}
+              fallback={
+                <div className="space-y-12 opacity-50 grayscale pointer-events-none">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-5">
+                      <LayersIcon size={20} className="text-slate-500" />
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.4em] mono">Logic Depth Index</span>
+                    </div>
+                    <span className="text-[10px] text-slate-600 uppercase tracking-widest border border-slate-700 rounded px-2 py-1">Auto-Managed</span>
+                  </div>
+                  <div className="relative py-4">
+                    <div className="w-full h-1.5 bg-slate-900 rounded-full" />
+                  </div>
                 </div>
-                <motion.span
-                  key={complexity}
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className={`text-[12px] font-bold mono uppercase tracking-widest ${COMPLEXITY_LABELS[complexity].color}`}
-                >
-                  {COMPLEXITY_LABELS[complexity].label}
-                </motion.span>
-              </div>
-              <div className="relative py-4 group/range">
-                <input
-                  type="range" min="1" max="10" step="1"
-                  value={complexity}
-                  onChange={(e) => setComplexity(parseInt(e.target.value))}
-                  className="w-full h-1.5 bg-slate-900 rounded-full appearance-none cursor-pointer focus:outline-none accent-sky-500 shadow-inner"
-                />
-                <div className="flex justify-between mt-8">
-                  {[...Array(10)].map((_, i) => (
-                    <motion.div
-                      key={i}
-                      animate={{
-                        height: i + 1 <= complexity ? [6, 10, 6] : 4,
-                        opacity: i + 1 <= complexity ? 1 : 0.15
-                      }}
-                      transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.08 }}
-                      className={`w-1 rounded-full transition-all duration-500 ${i + 1 <= complexity ? 'bg-sky-500 shadow-[0_0_10px_#0ea5e9]' : 'bg-slate-700'}`}
-                    />
-                  ))}
+              }
+            >
+              <div className="space-y-12">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-5">
+                    <LayersIcon size={20} className="text-slate-500" />
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.4em] mono">Logic Depth Index</span>
+                  </div>
+                  <motion.span
+                    key={complexity}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className={`text-[12px] font-bold mono uppercase tracking-widest ${COMPLEXITY_LABELS[complexity].color}`}
+                  >
+                    {COMPLEXITY_LABELS[complexity].label}
+                  </motion.span>
+                </div>
+                <div className="relative py-4 group/range">
+                  <input
+                    type="range" min="1" max="10" step="1"
+                    value={complexity}
+                    onChange={(e) => setComplexity(parseInt(e.target.value))}
+                    className="w-full h-1.5 bg-slate-900 rounded-full appearance-none cursor-pointer focus:outline-none accent-sky-500 shadow-inner"
+                  />
+                  <div className="flex justify-between mt-8">
+                    {[...Array(10)].map((_, i) => (
+                      <motion.div
+                        key={i}
+                        animate={{
+                          height: i + 1 <= complexity ? [6, 10, 6] : 4,
+                          opacity: i + 1 <= complexity ? 1 : 0.15
+                        }}
+                        transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.08 }}
+                        className={`w-1 rounded-full transition-all duration-500 ${i + 1 <= complexity ? 'bg-sky-500 shadow-[0_0_10px_#0ea5e9]' : 'bg-slate-700'}`}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            </AdaptiveWrapper>
 
-            <div className="space-y-12">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.4em] mono">Neural Execution Cluster</span>
-              <div className="flex flex-wrap gap-3.5 p-3 bg-black/50 rounded-[2.8rem] border border-white/5 shadow-inner relative overflow-hidden">
-                <LayoutGroup id="model-tier-tabs">
-                  {Object.values(ModelTier).map((t) => {
-                    const meta = TIER_METADATA[t as ModelTier];
-                    const isActive = model === t;
-                    return (
-                      <motion.button
-                        key={t}
-                        layout
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => setModel(t as ModelTier)}
-                        className={`px-8 py-4.5 rounded-[2rem] text-[10px] font-bold uppercase tracking-widest transition-all duration-500 border relative flex items-center gap-3.5 ${isActive ? meta.activeClass : 'border-transparent text-slate-600 hover:text-slate-400'
-                          }`}
-                      >
-                        {isActive && (
-                          <motion.div
-                            layoutId="active-tab-glow"
-                            className="absolute inset-0 rounded-[2rem] bg-white/[0.04] -z-10 shadow-[inset_0_0_25px_rgba(255,255,255,0.02)]"
-                            transition={{ type: "spring", bounce: 0.15, duration: 0.7 }}
-                          />
-                        )}
-                        <meta.icon size={16} className={isActive ? "text-sky-400 bloom" : "opacity-30"} />
-                        {t.split('(')[0]}
-                      </motion.button>
-                    );
-                  })}
-                </LayoutGroup>
+            <AdaptiveWrapper
+              requiredSkill={SkillDomain.ArchitecturalReasoning}
+              minLevel={5}
+              fallback={
+                <div className="space-y-12">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.4em] mono">Neural Execution Cluster</span>
+                  <div className="p-8 border border-white/5 rounded-[2rem] bg-black/20 text-center">
+                    <Cpu size={24} className="mx-auto text-slate-600 mb-4" />
+                    <p className="text-xs text-slate-500 uppercase tracking-widest">Model Selection Locked</p>
+                    <p className="text-[10px] text-slate-600 mt-2">Requires Level 5 Architecture Skill</p>
+                  </div>
+                </div>
+              }
+            >
+              <div className="space-y-12">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-[0.4em] mono">Neural Execution Cluster</span>
+                <div className="flex flex-wrap gap-3.5 p-3 bg-black/50 rounded-[2.8rem] border border-white/5 shadow-inner relative overflow-hidden">
+                  <LayoutGroup id="model-tier-tabs">
+                    {Object.values(ModelTier).map((t) => {
+                      const meta = TIER_METADATA[t as ModelTier];
+                      const isActive = model === t;
+                      return (
+                        <motion.button
+                          key={t}
+                          layout
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => setModel(t as ModelTier)}
+                          className={`px-8 py-4.5 rounded-[2rem] text-[10px] font-bold uppercase tracking-widest transition-all duration-500 border relative flex items-center gap-3.5 ${isActive ? meta.activeClass : 'border-transparent text-slate-600 hover:text-slate-400'
+                            }`}
+                        >
+                          {isActive && (
+                            <motion.div
+                              layoutId="active-tab-glow"
+                              className="absolute inset-0 rounded-[2rem] bg-white/[0.04] -z-10 shadow-[inset_0_0_25px_rgba(255,255,255,0.02)]"
+                              transition={{ type: "spring", bounce: 0.15, duration: 0.7 }}
+                            />
+                          )}
+                          <meta.icon size={16} className={isActive ? "text-sky-400 bloom" : "opacity-30"} />
+                          {t.split('(')[0]}
+                        </motion.button>
+                      );
+                    })}
+                  </LayoutGroup>
+                </div>
               </div>
-            </div>
+            </AdaptiveWrapper>
           </div>
 
           {/* Primary Action Sequence */}

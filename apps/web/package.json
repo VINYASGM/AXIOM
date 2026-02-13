@@ -19,7 +19,8 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "vitest": "^4.0.18",
-    "web-tree-sitter": "^0.26.5"
+    "web-tree-sitter": "^0.26.5",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",

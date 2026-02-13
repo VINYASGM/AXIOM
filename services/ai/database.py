@@ -181,6 +181,11 @@ class DatabaseService:
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        
+        try:
+             await conn.execute("ALTER TABLE learner_models ADD COLUMN IF NOT EXISTS history JSONB DEFAULT '[]'::jsonb;")
+        except Exception:
+             pass
 
         # =====================================================================
         # Model Configuration Table - Dynamic Model Config (Design.md 3.3)

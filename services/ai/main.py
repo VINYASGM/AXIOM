@@ -255,13 +255,13 @@ app = FastAPI(
 )
 
 # CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# app.add_middleware(
+#    CORSMiddleware,
+#    allow_origins=["*"],
+#    allow_credentials=True,
+#    allow_methods=["*"],
+#    allow_headers=["*"],
+# )
 
 # Session tracking for economics (simple in-memory for now, could be in DB too)
 session_store: Dict[str, str] = {}  # sdo_id -> session_id
@@ -1132,63 +1132,6 @@ async def get_generation_stats():
 
 
 # ============================================================================
-# Learner Model Endpoints (Phase 3)
-# ============================================================================
-
-class LearningEvent(BaseModel):
-    user_id: str
-    event_type: str
-    details: Dict[str, Any]
-    timestamp: Optional[str] = None
-
-class LearningResponse(BaseModel):
-    user_id: str
-    updated_skills: Dict[str, int]
-    message: str
-
-@app.post("/learner/event", response_model=LearningResponse)
-async def process_learning_event(event: LearningEvent):
-    """
-    Process a learning event and update user skills.
-    """
-    # Map event type to domain
-    domain = "general"
-    delta = 0
-    
-    if event.event_type == "code_accepted":
-        domain = "verification"
-        delta = 1
-    elif event.event_type == "refinement_loop":
-        domain = "intent_expression"
-        delta = 1
-    elif event.event_type == "error_fixed":
-        domain = "debugging"
-        delta = 1
-    elif event.event_type == "manual_correction":
-        domain = "architectural_reasoning"
-        delta = 2
-        
-    if delta > 0:
-        await sdo_engine.learner.update_skill(event.user_id, domain, delta)
-        
-    # Get updated profile
-    profile = await sdo_engine.learner.get_profile(event.user_id)
-    skills = profile.get("skills", {})
-
-    return LearningResponse(
-        user_id=event.user_id,
-        updated_skills=skills,
-        message=f"Event processed. {domain} +{delta}"
-    )
-
-@app.get("/learner/profile/{user_id}")
-async def get_learner_profile(user_id: str):
-    """
-    Get full learner profile.
-    """
-    return await sdo_engine.learner.get_profile(user_id)
-
-# ============================================================================
 # Counterfactual Explorer Endpoints (Phase 3)
 # ============================================================================
 
@@ -1663,10 +1606,79 @@ async def submit_feedback(request: FeedbackRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# =============================================================================
+# Learner Endpoints (Phase 3/11)
+# =============================================================================
 
-# =============================================================================
-# WebSocket Endpoint
-# =============================================================================
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Session tracking for economics (simple in-memory for now, could be in DB too)
+session_store: Dict[str, str] = {}  # sdo_id -> session_id
+
+class ParseIntentRequest(BaseModel):
+    intent: str
+    project_id: Optional[str] = None
+    user_id: Optional[str] = None
+
+class GenerateCodeRequest(BaseModel):
+    intent: str
+    language: str = "python"
+    model: str = "gpt-4-turbo"
+    user_id: Optional[str] = None
+
+class VerifyRequest(BaseModel):
+    code: str
+    language: str = "python"
+    sdo_id: Optional[str] = None
+
+class LearningEventRequest(BaseModel):
+    user_id: str
+    event_type: str
+    details: Dict[str, Any]
+
+@app.post("/learner/event")
+async def handle_learning_event(event: LearningEventRequest):
+    """
+    Handle a learning event (e.g., successful generation, manual correction).
+    Updates user skills and profile accordingly.
+    """
+    try:
+        if not sdo_engine.learner:
+             raise HTTPException(status_code=503, detail="Learner service unavailable")
+        
+        domain = "general"
+        delta = 0
+        
+        if event.event_type == "generation_accepted":
+            complexity = event.details.get("complexity", 1)
+            if complexity > 5:
+                domain = "architectural_reasoning"
+                delta = 1
+            else:
+                domain = "intent_expression"
+                delta = 1
+        elif event.event_type == "correction":
+             domain = "debugging"
+             delta = 1
+        elif event.event_type == "manual_skill_update":
+             domain = event.details.get("domain", "general")
+             delta = event.details.get("delta", 0)
+        
+        result = await sdo_engine.learner.update_skill(event.user_id, domain, delta)
+        return {"updated_skills": result}
+    except Exception as e:
+        print(f"DEBUG: Exception in handle_learning_event: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
