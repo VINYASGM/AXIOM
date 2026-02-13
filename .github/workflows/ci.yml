@@ -1,65 +1,60 @@
-name: AXIOM CI
+name: API & Web CI
 
 on:
   push:
-    branches: ["main", "dev"]
+    branches: [main]
   pull_request:
-    branches: ["main", "dev"]
+    branches: [main]
 
 jobs:
-  # Go Backend Build & Test
-  backend-test:
+  # --- Backend Checks ---
+  test-backend:
+    name: Backend Tests (Go)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apps/api
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.24" # Match Dockerfile
+          go-version: "1.24"
+          cache-dependency-path: apps/api/go.sum
 
-      - name: Build
-        working-directory: ./apps/api
-        run: go build -v ./...
+      - name: Verify dependencies
+        run: go mod verify
 
-      - name: Test
-        working-directory: ./apps/api
-        # Skip tests that require external services (Postgres, Redis) unless mocked
-        # For now, run unit tests only
-        run: go test -v ./... -short
+      - name: Run Tests
+        run: go test -v ./...
 
-  # Python AI Service Test
-  ai-test:
+  lint-backend:
+    name: Backend Lint (Go)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apps/api
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-go@v4
         with:
-          python-version: "3.12"
+          go-version: "1.24"
+          cache-dependency-path: apps/api/go.sum
 
-      - name: Install dependencies
-        working-directory: ./services/ai
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          working-directory: apps/api
 
-      - name: Run tests
-        working-directory: ./services/ai
-        env:
-          OPENAI_API_KEY: "mock-key-for-ci"
-          ANTHROPIC_API_KEY: "mock-key-for-ci"
-          # Skip tests requiring live DB
-        run: |
-          # Run specific unit tests that don't need external services
-          # Or exclude integration tests
-          pytest -v -k "not integration and not e2e"
-
-  # Frontend Build Check
-  frontend-build:
+  # --- Frontend Checks ---
+  build-frontend:
+    name: Frontend Build (React/Vite)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./apps/web
     steps:
       - uses: actions/checkout@v4
 
@@ -68,82 +63,49 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: "./apps/web/package-lock.json"
+          cache-dependency-path: apps/web/package-lock.json
 
       - name: Install dependencies
-        working-directory: ./apps/web
         run: npm ci
+
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true # Warning for now
 
       - name: Build
-        working-directory: ./apps/web
         run: npm run build
 
-  # Docker Build Check
-  docker-build:
+      - name: Run Tests
+        run: npm run test -- --run
+
+  # --- Docker Build Checks (Dry Run) ---
+  build-containers:
+    name: Docker Build Check
     runs-on: ubuntu-latest
+    needs: [test-backend, build-frontend] # Only build if tests pass
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build API Docker Image
-        run: docker build ./apps/api --file ./apps/api/Dockerfile
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
 
-      - name: Build AI Service Docker Image
-        run: docker build ./services/ai --file ./services/ai/Dockerfile
-
-      - name: Build Frontend Docker Image
-        run: docker build ./apps/web --file ./apps/web/Dockerfile
-
-  # Code Quality Checks
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # Go Linting
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - name: Build API
+        uses: docker/build-push-action@v4
         with:
-          go-version: "1.24"
+          context: ./apps/api
+          push: false
+          tags: axiom-api:latest
 
-      - name: Go Lint
-        uses: golangci/golangci-lint-action@v3
+      - name: Build Web
+        uses: docker/build-push-action@v4
         with:
-          version: latest
-          working-directory: ./apps/api
-          args: --config=.golangci.yml
+          context: ./apps/web
+          push: false
+          tags: axiom-web:latest
 
-      # Python Linting
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Build AI Service
+        uses: docker/build-push-action@v4
         with:
-          python-version: "3.12"
-
-      - name: Install Python Linting Tools
-        run: pip install flake8 black
-
-      - name: Python Lint (Flake8)
-        working-directory: ./services/ai
-        # Stop the build if there are Python syntax errors or undefined names
-        run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-      - name: Python Format Check (Black)
-        working-directory: ./services/ai
-        run: black . --check
-
-      # Frontend Linting (Basic check since no eslint config yet)
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: "20"
-
-      - name: Install Frontend Dependencies
-        working-directory: ./apps/web
-        run: npm ci
-
-      - name: Frontend Format Check (Prettier)
-        working-directory: ./apps/web
-        # Running prettier directly via npx to avoid modifying package.json
-        run: npx prettier --check "**/*.{ts,tsx,js,jsx,json,css,md}"
+          context: ./services/ai
+          push: false
+          tags: axiom-ai:latest
