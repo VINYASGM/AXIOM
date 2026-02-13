@@ -14,6 +14,8 @@ type Config struct {
 
 	// External services
 	AIServiceURL string
+	VerifierURL  string
+	TemporalURL  string
 
 	// Security
 	JWTSecret string
@@ -27,6 +29,8 @@ func Load() *Config {
 		DatabaseURL:  getEnv("DATABASE_URL", "postgres://axiom:axiom_dev_password@localhost:5433/axiom?sslmode=disable"),
 		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6380"),
 		AIServiceURL: getEnv("AI_SERVICE_URL", "http://localhost:8000"),
+		VerifierURL:  getEnv("VERIFIER_URL", "localhost:50051"),
+		TemporalURL:  getEnv("TEMPORAL_URL", "localhost:7233"),
 		JWTSecret:    getEnv("JWT_SECRET", "dev-secret-change-in-production"),
 	}
 }

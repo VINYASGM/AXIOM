@@ -164,15 +164,15 @@ async def generate_candidates_activity(
     candidates = []
     
     for i in range(count):
-        result = await llm.generate(
+        result = await llm.generate_with_provider(
             prompt=f"Generate {language} code for: {intent}\nConstraints: {constraints}",
             temperature=0.7 + (i * 0.1)  # Vary temperature for diversity
         )
         candidates.append({
             "id": f"candidate-{i}",
-            "code": result.get("code", ""),
+            "code": result.get("content", ""),
             "model": result.get("model", "unknown"),
-            "cost": result.get("cost", 0.0)
+            "cost": 0.0  # TODO: Calculate cost from usage
         })
     
     return candidates
@@ -249,6 +249,60 @@ async def run_verification_tier_activity(
         "confidence": result.get("confidence", 0.0),
         "details": result.get("details", {})
     }
+
+
+@activity.defn
+async def record_sdo_step_activity(
+    sdo_id: str,
+    step_type: str,
+    content: Dict[str, Any],
+    confidence: float,
+    model: str
+) -> bool:
+    """
+    Record a reasoning step in the SDO's history.
+    This is called by workflows to build the reasoning trace.
+    """
+    from database import DatabaseService
+    from sdo import SDO
+    
+    db = DatabaseService()
+    await db.initialize()
+    
+    try:
+        sdo_data = await db.get_sdo(sdo_id)
+        
+        if sdo_data:
+            sdo = SDO(**sdo_data)
+            sdo.add_step(step_type, content, confidence, model)
+            await db.save_sdo(sdo.model_dump())
+            return True
+        else:
+            # SDO may not exist in DB yet if workflow started before parse-intent saved it
+            # Create a minimal record with just the step
+            sdo = SDO(id=sdo_id, raw_intent="", language="python")
+            sdo.add_step(step_type, content, confidence, model)
+            await db.save_sdo(sdo.model_dump())
+            
+            # Emit NATS event for real-time updates
+            try:
+                from eventbus import get_event_bus
+                bus = await get_event_bus()
+                await bus.publish("ivcu.step.recorded", {
+                    "sdo_id": sdo_id,
+                    "step_type": step_type,
+                    "content": content,
+                    "confidence": confidence,
+                    "model": model,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "event": "step_recorded"
+                })
+            except Exception as e:
+                print(f"Failed to emit event in activity: {e}")
+                
+            return True
+    finally:
+        await db.close()
 
 
 @activity.defn
@@ -338,7 +392,19 @@ class CodeGenerationWorkflow:
     async def run(self, input: GenerationInput) -> GenerationOutput:
         workflow.logger.info(f"Starting code generation for SDO: {input.sdo_id}")
         
-        # Step 1: Generate candidates
+        # Step 1: Record intent analysis step
+        await workflow.execute_activity(
+            record_sdo_step_activity,
+            args=[input.sdo_id, "intent_analysis", {
+                "intent": input.intent,
+                "constraints": input.constraints,
+                "language": input.language,
+                "candidate_count": input.candidate_count
+            }, 0.9, "workflow"],
+            start_to_close_timeout=timedelta(seconds=10)
+        )
+        
+        # Step 2: Generate candidates
         candidates = await workflow.execute_activity(
             generate_candidates_activity,
             args=[
@@ -352,7 +418,17 @@ class CodeGenerationWorkflow:
             retry_policy=DEFAULT_RETRY_POLICY
         )
         
-        # Step 2: Run basic verification on each candidate
+        # Record generation step
+        await workflow.execute_activity(
+            record_sdo_step_activity,
+            args=[input.sdo_id, "candidate_generation", {
+                "candidates_count": len(candidates),
+                "models_used": [c.get("model", "unknown") for c in candidates]
+            }, 0.8, "gpt-4-turbo"],
+            start_to_close_timeout=timedelta(seconds=10)
+        )
+        
+        # Step 3: Run basic verification on each candidate
         verified_candidates = []
         for candidate in candidates:
             try:
@@ -369,7 +445,18 @@ class CodeGenerationWorkflow:
             
             verified_candidates.append(candidate)
         
-        # Step 3: Select best candidate
+        # Record verification step
+        await workflow.execute_activity(
+            record_sdo_step_activity,
+            args=[input.sdo_id, "verification", {
+                "candidates_verified": len(verified_candidates),
+                "passed_count": sum(1 for c in verified_candidates if c.get("verified")),
+                "results": [{"id": c.get("id"), "verified": c.get("verified"), "confidence": c.get("confidence")} for c in verified_candidates]
+            }, 0.85, "verifier"],
+            start_to_close_timeout=timedelta(seconds=10)
+        )
+        
+        # Step 4: Select best candidate
         best = await workflow.execute_activity(
             select_best_candidate_activity,
             args=[
@@ -382,7 +469,19 @@ class CodeGenerationWorkflow:
         # Calculate total cost
         total_cost = sum(c.get("cost", 0.0) for c in candidates)
         
-        # Step 4: Emit event
+        # Record selection step
+        await workflow.execute_activity(
+            record_sdo_step_activity,
+            args=[input.sdo_id, "candidate_selection", {
+                "selected_id": best.get("id"),
+                "selected_score": best.get("score", 0.0),
+                "selected_model": best.get("model", "unknown"),
+                "total_cost": total_cost
+            }, 0.9, "selector"],
+            start_to_close_timeout=timedelta(seconds=10)
+        )
+        
+        # Step 5: Emit event
         await workflow.execute_activity(
             emit_event_activity,
             args=["code_generated", {
@@ -521,5 +620,6 @@ ACTIVITIES = [
     generate_candidates_activity,
     select_best_candidate_activity,
     run_verification_tier_activity,
+    record_sdo_step_activity,
     emit_event_activity,
 ]

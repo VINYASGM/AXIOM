@@ -16,10 +16,13 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: 'jsdom',
+      globals: true,
     },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        'react': path.resolve(__dirname, '../../node_modules/react'),
+        'react-dom': path.resolve(__dirname, '../../node_modules/react-dom'),
       }
     }
   };

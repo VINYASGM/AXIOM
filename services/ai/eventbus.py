@@ -43,7 +43,7 @@ class StreamSettings:
             name=self.name,
             subjects=self.subjects,
             retention=RetentionPolicy.LIMITS,
-            max_age=self.retention_days * 24 * 60 * 60 * 1_000_000_000,  # nanoseconds
+            max_age=0, # Explicitly set to 0 (unlimited) to avoid nanosecond overflow issues
             max_bytes=self.max_bytes,
             num_replicas=self.replicas
         )
@@ -130,8 +130,9 @@ class JetStreamEventBus:
                 # Stream might already exist, try to update
                 try:
                     await self._js.update_stream(settings.to_config())
-                except:
-                    print(f"Stream {stream_name.value} exists")
+                except Exception as update_err:
+                    print(f"Stream {stream_name.value} update failed: {update_err}")
+                    print(f"Original add error: {e}")
     
     async def publish(
         self,

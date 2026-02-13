@@ -197,7 +197,7 @@ const IntentCanvas: React.FC<Props> = ({ onGenerated, addLog, scaffoldingLevel =
     if (typeof window === 'undefined') return;
 
     const clientId = Math.random().toString(36).substring(7);
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || `ws://localhost:8000/ws/${clientId}`;
+    const wsUrl = import.meta.env.VITE_WS_URL || `ws://localhost:8000/ws/${clientId}`;
 
     let ws: WebSocket | null = null;
 
@@ -219,19 +219,43 @@ const IntentCanvas: React.FC<Props> = ({ onGenerated, addLog, scaffoldingLevel =
 
             switch (payload.event) {
               case "INTENT_CREATED":
-                msg = `CORE: Intent registered. Analysis started.`;
+              case "intent_parsed":
+                msg = `CORE: Intent registered. SDO ${d.sdo_id?.substring(0, 8)} created.`;
                 break;
+
+              case "step_recorded":
+                const stepType = payload.step_type;
+                const content = payload.content || {};
+
+                if (stepType === "candidate_generation") {
+                  msg = `GEN: Generated ${content.candidates_count || 0} candidates via ${content.models_used?.[0] || 'LLM'}`;
+                } else if (stepType === "verification") {
+                  msg = `VERIFY: Verified ${content.candidates_verified || 0} candidates. Passed: ${content.passed_count || 0}`;
+                } else if (stepType === "candidate_selection") {
+                  msg = `DECISION: Selected candidate ${content.selected_id?.substring(0, 8)} (Score: ${content.selected_score?.toFixed(2)})`;
+                } else if (stepType === "intent_analysis") {
+                  msg = `ANALYSIS: Constraints extracted: ${content.constraints?.length || 0}`;
+                } else {
+                  msg = `STEP: ${stepType} completed`;
+                }
+                break;
+
               case "CANDIDATE_GENERATED":
-                msg = `GEN: Candidate ${d.candidate_id?.substring(0, 4)} generated via ${d.model?.split(':')[0]}`;
+              case "code_generated":
+                msg = `GEN: Code generation cycle complete. Cost: $${d.cost?.toFixed(4)}`;
                 break;
+
               case "VERIFICATION_COMPLETED":
+              case "verification_completed":
                 const status = d.passed ? "PASSED" : "FAILED";
-                const score = typeof d.score === 'number' ? d.score.toFixed(2) : '0.00';
-                msg = `VERIFY: Unit ${d.candidate_id?.substring(0, 4)} ${status} [Integrity: ${score}]`;
+                const conf = typeof d.confidence === 'number' ? d.confidence.toFixed(2) : '0.00';
+                msg = `AUDIT: Verification ${status} [Confidence: ${conf}]`;
                 break;
+
               case "CANDIDATE_SELECTED":
                 msg = `DECISION: Optimized candidate selected (Conf: ${d.confidence?.toFixed(2)})`;
                 break;
+
               default:
                 msg = `SYS: ${payload.event}`;
             }

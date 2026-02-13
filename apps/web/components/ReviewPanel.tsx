@@ -10,6 +10,7 @@ import Button from './Button';
 import {
   GitFork
 } from 'lucide-react';
+import ReasoningTrace from './ReasoningTrace';
 
 interface Props {
   ivcu: IVCU;
@@ -83,6 +84,10 @@ const ReviewPanel: React.FC<Props> = ({ ivcu, onExplore }) => {
           </div>
         </motion.div>
 
+        <motion.div variants={item} className="glass rounded-[2rem] p-6 space-y-4 border border-white/5">
+          <ReasoningTrace ivcuId={ivcu.id} />
+        </motion.div>
+
         <motion.div variants={item} className="bg-gradient-to-br from-emerald-500/10 via-transparent p-8 rounded-[2rem] border border-emerald-500/20 space-y-6">
           <div className="flex items-center space-x-3">
             <FileBadge2 size={20} className="text-emerald-400" />
@@ -91,8 +96,8 @@ const ReviewPanel: React.FC<Props> = ({ ivcu, onExplore }) => {
           <p className="text-[11px] text-slate-500 leading-relaxed font-medium">Compliance proof ready for Zero-Knowledge handover.</p>
           <Button variant="tertiary" size="md" icon={ChevronRight} iconPosition="right" className="w-full">Export Signed Bundle</Button>
         </motion.div>
-      </div>
-    </motion.div>
+      </div >
+    </motion.div >
   );
 };
 

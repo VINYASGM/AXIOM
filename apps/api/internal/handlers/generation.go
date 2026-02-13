@@ -56,6 +56,9 @@ type GenerationStatus struct {
 
 // StartGeneration initiates code generation for an IVCU
 func (h *GenerationHandler) StartGeneration(c *gin.Context) {
+	ctx, span := tracer.Start(c.Request.Context(), "StartGeneration")
+	defer span.End()
+
 	var req StartGenerationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -75,7 +78,7 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 	var contractsJSON []byte
 	var generationParamsJSON []byte
 
-	err := h.db.Pool().QueryRow(c.Request.Context(), query, req.IVCUID).Scan(&projectID, &rawIntent, &contractsJSON, &generationParamsJSON)
+	err := h.db.Pool().QueryRow(ctx, query, req.IVCUID).Scan(&projectID, &rawIntent, &contractsJSON, &generationParamsJSON)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "IVCU not found"})
 		return
@@ -87,7 +90,7 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 		estimatedCost = float64(req.CandidateCount) * 0.02
 	}
 
-	budgetStatus, err := h.economicService.CheckBudget(c.Request.Context(), projectID, estimatedCost)
+	budgetStatus, err := h.economicService.CheckBudget(ctx, projectID, estimatedCost)
 	if err != nil {
 		h.logger.Error("failed to check budget", zap.Error(err))
 		// Fail open or closed? Closed for now.
@@ -115,7 +118,7 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 
 	// Update IVCU status to generating
 	updateQuery := `UPDATE ivcus SET status = 'generating', updated_at = NOW() WHERE id = $1`
-	h.db.Pool().Exec(c.Request.Context(), updateQuery, req.IVCUID)
+	h.db.Pool().Exec(ctx, updateQuery, req.IVCUID)
 
 	// Call AI service to generate code
 	go h.generateCode(req.IVCUID, projectID, sdoID, rawIntent, req.Language, userID, req.CandidateCount, req.Strategy, estimatedCost)
@@ -153,7 +156,7 @@ func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, projectID uuid.UUID, 
 
 	workflowOptions := client.StartWorkflowOptions{
 		ID:        "generation-" + ivcuID.String(),
-		TaskQueue: "axiom-ai-queue",
+		TaskQueue: "axiom-task-queue",
 	}
 
 	// Use background context for async DB operations

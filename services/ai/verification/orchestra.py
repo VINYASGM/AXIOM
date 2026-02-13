@@ -200,6 +200,52 @@ class VerificationOrchestra:
             fail_fast=False
         )
     
+    async def verify_tier(self, code: str, language: str, tier: str) -> Dict[str, Any]:
+        """
+        Run a single verification tier in isolation.
+        Used by workflows that orchestrate tiers individually.
+        """
+        if tier == "syntax" or tier == "tier0":
+            result = await verify_tier0(code, language)
+            return {
+                "passed": result.passed,
+                "confidence": result.confidence,
+                "details": {
+                    "errors": [e.to_dict() for e in result.errors],
+                    "warnings": [w.to_dict() for w in result.warnings]
+                }
+            }
+        
+        elif tier == "semantic" or tier == "tier1":
+            results = await self.tier1.verify_all(code, language)
+            passed = all(r.passed for r in results)
+            # Calculate average confidence of passed checks
+            confidence = sum(r.confidence for r in results) / len(results) if results else 1.0
+            if not passed:
+                confidence = 0.0
+                
+            return {
+                "passed": passed,
+                "confidence": confidence,
+                "details": {
+                    "issues": [r.to_dict() for r in results if not r.passed]
+                }
+            }
+            
+        elif tier == "coverage" or tier == "tier2":
+            # Tier 2 (Dynamic)
+            results = await self.tier2.verify_all(code, language)
+            passed = all(r.passed for r in results)
+            return {
+                "passed": passed,
+                "confidence": 1.0 if passed else 0.0,
+                "details": {
+                    "results": [r.to_dict() for r in results]
+                }
+            }
+            
+        return {"passed": False, "confidence": 0.0, "details": {"error": f"Unknown tier: {tier}"}}
+
     def select_best_candidate(
         self,
         results: List[VerificationResult]

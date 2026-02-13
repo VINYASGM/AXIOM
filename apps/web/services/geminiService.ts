@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { ModelTier } from "../types";
+import { ModelTier, IVCUStatus } from "../types";
 
 // Always initialize with verified API key from process.env.API_KEY
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
@@ -18,19 +18,14 @@ const getModelForTier = (tier: ModelTier) => {
 // Backend Integration Service
 // Replaces direct Gemini SDK calls with AXIOM Python Backend Requests
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { ApiClient } from "../lib/api";
+
+// Backend Integration Service
+// Replaces direct Gemini SDK calls with AXIOM Python Backend Requests
 
 export const parseIntent = async (prompt: string, complexity: number = 5, tier: ModelTier = ModelTier.Fast) => {
   try {
-    const response = await fetch(`${API_BASE}/parse-intent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ intent: prompt })
-    });
-
-    if (!response.ok) throw new Error("Backend parse failed");
-
-    const data = await response.json();
+    const data = await ApiClient.parseIntent(prompt, getModelForTier(tier));
 
     // Map Backend Response to Frontend Expectations
     return {
@@ -47,34 +42,52 @@ export const parseIntent = async (prompt: string, complexity: number = 5, tier: 
   }
 };
 
-export const generateVerifiedCode = async (intent: string, constraints: string[], complexity: number = 5, tier: ModelTier = ModelTier.Fast) => {
+export const generateVerifiedCode = async (intent: string, constraints: string[], complexity: number = 5, tier: ModelTier = ModelTier.Fast, sdoId?: string) => {
   try {
-    // We use the new Parallel Generation endpoint
-    const response = await fetch(`${API_BASE}/generate/parallel`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sdo_id: "adhoc", // Or pass sdo_id from parse step if we threaded it
-        intent: intent,
-        language: "python", // Defaulting to Python as per backend focus
-        candidate_count: tier === ModelTier.Frontier ? 5 : 3
-      })
-    });
-
-    if (!response.ok) throw new Error("Backend generation failed");
-
-    const data = await response.json();
-
-    // Check if we have selected code
-    if (data.selected_code) return data.selected_code;
-
-    // Fallback if no selected code
-    if (data.candidates && data.candidates.length > 0) {
-      return data.candidates[0].code;
+    // 0. Ensure Project Context
+    let projectId = localStorage.getItem("axiom_project_id");
+    if (!projectId) {
+      const projects = await ApiClient.listProjects();
+      if (projects.length > 0) {
+        projectId = projects[0].id;
+      } else {
+        const newProject = await ApiClient.createProject("Default Project");
+        if (!newProject) throw new Error("Failed to create default project");
+        projectId = newProject.id;
+      }
+      localStorage.setItem("axiom_project_id", projectId);
     }
 
-    return "# Generation failed or no candidates produced.";
+    // 1. Create IVCU
+    // 1. Create IVCU
+    const { ivcu_id } = await ApiClient.createIVCU(projectId, intent, sdoId);
 
+    // 2. Start Generation
+    // Using default params for now, can be expanded to use 'tier' for strategy if needed
+    await ApiClient.startGeneration(
+      ivcu_id,
+      "python",
+      3,
+      tier === ModelTier.Frontier ? "frontier" : "simple"
+    );
+
+    // 3. Poll for Completion
+    const maxAttempts = 60; // 1 minute timeout (approx)
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, 1000)); // Wait 1s
+
+      const status = await ApiClient.getGenerationStatus(ivcu_id);
+
+      if (status.status === IVCUStatus.Verified || status.status === IVCUStatus.Deployed) {
+        return status.code;
+      }
+
+      if (status.status === IVCUStatus.Failed) {
+        throw new Error(`Generation failed: ${status.error || 'Unknown error'}`);
+      }
+    }
+
+    throw new Error("Generation timed out");
 
   } catch (e) {
     console.error("Generation Error:", e);
@@ -83,16 +96,7 @@ export const generateVerifiedCode = async (intent: string, constraints: string[]
 };
 
 export const snapshotState = async (sdoId: string) => {
-  try {
-    const response = await fetch(`${API_BASE}/sdo/${sdoId}/snapshot`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" }
-    });
-    return response.ok;
-  } catch (e) {
-    console.error("Snapshot Error:", e);
-    return false;
-  }
+  return await ApiClient.snapshotState(sdoId);
 };
 
 // ============================================================================
@@ -121,18 +125,7 @@ export interface ModelsResponse {
  * @param tier Optional tier filter: 'local', 'balanced', 'high_accuracy', 'frontier'
  */
 export const getModels = async (tier?: string): Promise<ModelsResponse> => {
-  try {
-    const url = tier
-      ? `${API_BASE}/api/v1/models?tier=${tier}`
-      : `${API_BASE}/api/v1/models`;
-
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("Models fetch failed");
-    return await response.json();
-  } catch (e) {
-    console.error("Get Models Error:", e);
-    return { models: [], count: 0, cache_age_seconds: null };
-  }
+  return await ApiClient.getModels(tier);
 };
 
 /**
@@ -140,18 +133,7 @@ export const getModels = async (tier?: string): Promise<ModelsResponse> => {
  * @param tier Optional tier filter
  */
 export const getDefaultModel = async (tier?: string): Promise<ModelConfig | null> => {
-  try {
-    const url = tier
-      ? `${API_BASE}/api/v1/models/default?tier=${tier}`
-      : `${API_BASE}/api/v1/models/default`;
-
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    return await response.json();
-  } catch (e) {
-    console.error("Get Default Model Error:", e);
-    return null;
-  }
+  return await ApiClient.getDefaultModel(tier);
 };
 
 /**
@@ -165,38 +147,11 @@ export const getEstimatedCost = async (intent: string, model: string = "deepseek
   output_tokens: number;
   model: string;
 }> => {
-  try {
-    const response = await fetch(`${API_BASE}/cost/estimate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        intent,
-        model
-      })
-    });
-
-    if (!response.ok) throw new Error("Cost estimate failed");
-    return await response.json();
-  } catch (e) {
-    console.error("Cost Estimate Error:", e);
-    return {
-      estimated_cost_usd: 0,
-      input_tokens: 0,
-      output_tokens: 0,
-      model: "unknown"
-    };
-  }
+  return await ApiClient.getEstimatedCost(intent, model);
 };
 
 export const getGraphData = async () => {
-  try {
-    const response = await fetch(`${API_BASE}/api/v1/graph`);
-    if (!response.ok) throw new Error("Graph fetch failed");
-    return await response.json();
-  } catch (e) {
-    console.error("Graph Data Error:", e);
-    return { nodes: [], edges: [] };
-  }
+  return await ApiClient.getGraphData();
 };
 
 

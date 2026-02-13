@@ -7,6 +7,7 @@ import (
 
 	"github.com/axiom/api/internal/database"
 	"github.com/axiom/api/internal/models"
+	"github.com/axiom/api/internal/verification"
 	"github.com/axiom/api/internal/verifier"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -15,19 +16,21 @@ import (
 
 // VerificationHandler handles verification endpoints
 type VerificationHandler struct {
-	db             *database.Postgres
-	aiServiceURL   string
-	verifierClient verifier.Client
-	logger         *zap.Logger
+	db                 *database.Postgres
+	aiServiceURL       string
+	verifierClient     verifier.Client
+	certificateService *verification.CertificateService
+	logger             *zap.Logger
 }
 
 // NewVerificationHandler creates a new verification handler
-func NewVerificationHandler(db *database.Postgres, aiServiceURL string, verifierClient verifier.Client, logger *zap.Logger) *VerificationHandler {
+func NewVerificationHandler(db *database.Postgres, aiServiceURL string, verifierClient verifier.Client, certificateService *verification.CertificateService, logger *zap.Logger) *VerificationHandler {
 	return &VerificationHandler{
-		db:             db,
-		aiServiceURL:   aiServiceURL,
-		verifierClient: verifierClient,
-		logger:         logger,
+		db:                 db,
+		aiServiceURL:       aiServiceURL,
+		verifierClient:     verifierClient,
+		certificateService: certificateService,
+		logger:             logger,
 	}
 }
 
@@ -88,15 +91,88 @@ func (h *VerificationHandler) Verify(c *gin.Context) {
 	// Store verification result details as JSONB
 	resultsJSON, _ := json.Marshal(aiResult.VerifierResults)
 
+	// Transaction to update IVCU and insert Certificate
+	tx, err := h.db.Pool().Begin(c.Request.Context())
+	if err != nil {
+		h.logger.Error("failed to begin transaction", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+	defer tx.Rollback(c.Request.Context())
+
+	// 1. Update IVCU
 	query := `
 		UPDATE ivcus 
 		SET status = $1, confidence_score = $2, verification_result = $3, updated_at = NOW()
 		WHERE id = $4
 	`
-	_, err = h.db.Pool().Exec(c.Request.Context(), query, newStatus, aiResult.Confidence, resultsJSON, req.IVCUID)
+	_, err = tx.Exec(c.Request.Context(), query, newStatus, aiResult.Confidence, resultsJSON, req.IVCUID)
 	if err != nil {
 		h.logger.Error("failed to update verification result", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store verification result"})
+		return
+	}
+
+	// 2. Generate and Insert Proof Certificate (only if passed)
+	var proofCertID *uuid.UUID
+	if aiResult.Passed {
+		// Mock intent ID for now - in real implementation, we fetch it from IVCU
+		intentID := uuid.Nil
+
+		// Convert generic verifier results to models.VerifierResult
+		var modelResults []models.VerifierResult
+		for _, r := range aiResult.VerifierResults {
+			modelResults = append(modelResults, models.VerifierResult{
+				Name:       r["name"].(string),
+				Passed:     r["passed"].(bool),
+				Confidence: r["score"].(float64),
+				// Tier, Messages, Duration would be populated here
+			})
+		}
+
+		cert, err := h.certificateService.GenerateCertificate(
+			c.Request.Context(),
+			req.IVCUID,
+			intentID,
+			req.Code,
+			models.ProofTypeContractCompliance, // Default type for now
+			modelResults,
+		)
+		if err != nil {
+			h.logger.Error("failed to generate certificate", zap.Error(err))
+			// Decide if this should fail the request or just log. Failing for strictness.
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate proof certificate"})
+			return
+		}
+
+		proofCertID = &cert.ID
+
+		certQuery := `
+			INSERT INTO proof_certificates (
+				id, ivcu_id, proof_type, verifier_version, timestamp, intent_id,
+				ast_hash, code_hash, verifier_signatures, assertions, proof_data,
+				hash_chain, signature, created_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		`
+
+		verifierSigsJSON, _ := json.Marshal(cert.VerifierSignatures)
+		assertionsJSON, _ := json.Marshal(cert.Assertions)
+
+		_, err = tx.Exec(c.Request.Context(), certQuery,
+			cert.ID, cert.IVCUID, cert.ProofType, cert.VerifierVersion, cert.Timestamp, cert.IntentID,
+			cert.ASTHash, cert.CodeHash, verifierSigsJSON, assertionsJSON, cert.ProofData,
+			cert.HashChain, cert.Signature, cert.CreatedAt,
+		)
+		if err != nil {
+			h.logger.Error("failed to insert proof certificate", zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store proof certificate"})
+			return
+		}
+	}
+
+	if err := tx.Commit(c.Request.Context()); err != nil {
+		h.logger.Error("failed to commit transaction", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit transaction"})
 		return
 	}
 
@@ -106,6 +182,11 @@ func (h *VerificationHandler) Verify(c *gin.Context) {
 		Confidence:      aiResult.Confidence,
 		VerifierResults: aiResult.VerifierResults,
 		Limitations:     []string{},
+	}
+
+	if proofCertID != nil {
+		// Could add certificate ID to response if needed
+		h.logger.Info("proof certificate generated", zap.String("cert_id", proofCertID.String()))
 	}
 
 	h.logger.Info("verification completed",

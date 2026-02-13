@@ -1,11 +1,10 @@
 # Build stage
-FROM golang:1.24 AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-# Install git (often included in standard image, but good to be safe)
-# Debian uses apt-get
-# RUN apt-get update && apt-get install -y git
+# Install git and certificates
+RUN apk add --no-cache git ca-certificates
 
 # Copy go mod files
 COPY go.mod go.sum ./
@@ -16,18 +15,15 @@ COPY vendor/ vendor/
 # Copy source
 COPY . .
 
-# Build with vendor
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -o main ./cmd/server
+# Build with vendor, statically linked
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o main ./cmd/server
 
-# Runtime stage
-FROM debian:bookworm-slim
+# Runtime stage - Distroless for minimal attack surface
+FROM gcr.io/distroless/static-debian12
 
 WORKDIR /app
 
-# Install ca-certificates for HTTPS
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-
-# Copy binary
+# Copy binary from builder
 COPY --from=builder /app/main .
 
 # Expose port

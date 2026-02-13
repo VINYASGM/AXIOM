@@ -40,7 +40,7 @@ nats-py>=2.6.0
 # gRPC (Phase 4)
 grpcio>=1.62.0
 grpcio-tools>=1.62.0
-protobuf>=6.31.0
+protobuf>=4.25.0
 
 # Tree-sitter (Tier 0 verification)
 tree-sitter>=0.21.0

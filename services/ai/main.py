@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, Query, Path
+from fastapi import FastAPI, HTTPException, Query, Path, WebSocket, WebSocketDisconnect
+from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -90,6 +91,49 @@ async def event_stream_callback(event_type: str, data: Dict[str, Any]):
     # In future, this should push to NATS subject or SSE queue.
     print(f"STREAM EVENT [{event_type}]: {data}")
 
+
+# =============================================================================
+# WebSocket Connection Manager
+# =============================================================================
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, client_id: str, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[client_id] = websocket
+        print(f"WS Client connected: {client_id}")
+        
+    def disconnect(self, client_id: str):
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+            print(f"WS Client disconnected: {client_id}")
+
+    async def broadcast(self, message: Dict[str, Any]):
+        try:
+            # Convert to JSON handling datetime
+            def json_serial(obj):
+                if isinstance(obj, (datetime.datetime, datetime.date)):
+                    return obj.isoformat()
+                raise TypeError(f"Type {type(obj)} not serializable")
+            
+            msg_str = json.dumps(message, default=json_serial)
+            
+            to_remove = []
+            for client_id, connection in self.active_connections.items():
+                try:
+                    await connection.send_text(msg_str)
+                except Exception:
+                    to_remove.append(client_id)
+            
+            for client_id in to_remove:
+                self.disconnect(client_id)
+        except Exception as e:
+            print(f"Broadcast error: {e}")
+
+manager = ConnectionManager()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize services on startup, cleanup on shutdown."""
@@ -98,6 +142,25 @@ async def lifespan(app: FastAPI):
     
     # Initialize Telemetry
     init_telemetry()
+
+    # Start NATS listener for WebSockets
+    async def nats_listener():
+        try:
+            # Wait for NATS to be ready
+            await asyncio.sleep(5)
+            bus = await eventbus.get_event_bus()
+            
+            async def handle_event(msg):
+                await manager.broadcast(msg)
+                
+            # Subscribe to relevant streams
+            await bus.subscribe("ivcu.>", eventbus.StreamName.IVCU_EVENTS, "ws-broadcaster-ivcu", handle_event)
+            await bus.subscribe("gen.>", eventbus.StreamName.GENERATIONS, "ws-broadcaster-gen", handle_event)
+            print("WebSocket NATS listener started")
+        except Exception as e:
+            print(f"Failed to start NATS listener: {e}")
+
+    asyncio.create_task(nats_listener())
 
     print(f"DEBUG: QDRANT_URL = {os.getenv('QDRANT_URL')}")
     print(f"DEBUG: TEMPORAL_URL = {os.getenv('TEMPORAL_URL')}")
@@ -1599,6 +1662,26 @@ async def submit_feedback(request: FeedbackRequest):
         return {"success": True, "message": "Feedback digested", "lesson": correction.diff_summary}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# WebSocket Endpoint
+# =============================================================================
+
+@app.websocket("/ws/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    await manager.connect(client_id, websocket)
+    try:
+        while True:
+            # Keep connection open and handle incoming messages if any
+            # For now, we just discard or echo but keep the loop running
+            data = await websocket.receive_text()
+            # Optional: Handle client messages
+    except WebSocketDisconnect:
+        manager.disconnect(client_id)
+    except Exception as e:
+        print(f"WS Error: {e}")
+        manager.disconnect(client_id)
 
 if __name__ == "__main__":
     import uvicorn

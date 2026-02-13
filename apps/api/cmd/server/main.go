@@ -18,8 +18,10 @@ import (
 	"github.com/axiom/api/internal/orchestration"
 	"github.com/axiom/api/internal/speculation"
 	"github.com/axiom/api/internal/telemetry"
+	"github.com/axiom/api/internal/verification"
 	"github.com/axiom/api/internal/verifier"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
@@ -56,6 +58,10 @@ func main() {
 		zap.String("environment", os.Getenv("GO_ENV")),
 	)
 
+	logger.Info("Loading configuration...")
+	// Load configuration
+	cfg := config.Load()
+
 	logger.Info("Initializing telemetry...")
 	// Initialize Telemetry
 	shutdownTelemetry, err := telemetry.InitTracer(ctx, "axiom-api")
@@ -90,8 +96,7 @@ func main() {
 
 	// Initialize Verifier Client
 	logger.Info("Initializing Verifier Client...")
-	// In real env: internal.GetEnv("VERIFIER_URL", "localhost:50051")
-	verifierClient, err := verifier.NewClient("localhost:50051")
+	verifierClient, err := verifier.NewClient(cfg.VerifierURL)
 	if err != nil {
 		logger.Error("failed to connect to Verifier Service", zap.Error(err))
 	} else {
@@ -100,7 +105,7 @@ func main() {
 
 	logger.Info("Initializing Temporal...")
 	// Initialize Temporal Client
-	temporalClient, err := orchestration.InitTemporalClient()
+	temporalClient, err := orchestration.InitTemporalClient(cfg.TemporalURL)
 	if err != nil {
 		logger.Error("failed to connect to temporal", zap.Error(err))
 		// We don't fatal here to allow API to run even if Temporal is down (optional resilience)
@@ -108,10 +113,6 @@ func main() {
 		defer orchestration.CloseTemporalClient()
 		logger.Info("connected to temporal")
 	}
-
-	logger.Info("Loading configuration...")
-	// Load configuration
-	cfg := config.Load()
 
 	// Debug: print the database URL being used
 	log.Printf("DEBUG: Connecting to database: %s", cfg.DatabaseURL)
@@ -131,6 +132,12 @@ func main() {
 	}
 	defer rdb.Close()
 
+	logger.Info("Running database migrations...")
+	if err := database.RunMigrations(cfg.DatabaseURL); err != nil {
+		logger.Fatal("failed to run migrations", zap.Error(err))
+	}
+	logger.Info("Database migrations applied successfully")
+
 	// Setup Gin router
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -145,6 +152,10 @@ func main() {
 	// Swagger documentation
 	router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
+	// Prometheus metrics
+	logger.Info("Registering /metrics endpoint")
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
 	// Health check handlers
 	healthHandler := handlers.NewHealthHandler(db, rdb, cfg.AIServiceURL)
 	router.GET("/health", healthHandler.Health)
@@ -153,15 +164,19 @@ func main() {
 	// Initialize Economic Service
 	economicService := economics.NewService(db, logger)
 
+	// Initialize Certificate Service
+	certificateService := verification.NewCertificateService(cfg.JWTSecret) // Using JWT secret as signing key for now
+
 	logger.Info("Router initialized, setting up handlers...")
 
 	// Initialize handlers
-	intentHandler := handlers.NewIntentHandler(db, cfg.AIServiceURL, logger, economicService) // Updated with economics dependency
+	intentHandler := handlers.NewIntentHandler(db, cfg.AIServiceURL, logger)
 	generationHandler := handlers.NewGenerationHandler(db, cfg.AIServiceURL, logger, economicService, temporalClient)
-	verificationHandler := handlers.NewVerificationHandler(db, cfg.AIServiceURL, verifierClient, logger)
+	verificationHandler := handlers.NewVerificationHandler(db, cfg.AIServiceURL, verifierClient, certificateService, logger)
 	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret, logger)
 	intelligenceHandler := handlers.NewIntelligenceHandler(db, cfg.AIServiceURL, logger)
 	economicsHandler := handlers.NewEconomicsHandler(db, cfg.AIServiceURL, logger, economicService)
+	projectHandler := handlers.NewProjectHandler(db, logger)
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
@@ -217,7 +232,7 @@ func main() {
 			verification.GET("/:id", verificationHandler.GetResult)
 
 			// Protected routes with default rate limiting
-			protected := v1.Group("")
+			// Protected routes with default rate limiting (Continuation)
 
 			// Project Team routes (Phase 4)
 			teamHandler := handlers.NewTeamHandler(db, logger)
@@ -238,6 +253,14 @@ func main() {
 				user.PUT("/me/settings", authHandler.UpdateSettings)
 				user.GET("/learner", intelligenceHandler.GetUserLearner) // Phase 3
 				user.POST("/learner/event", intelligenceHandler.PostLearningEvent)
+			}
+
+			// Project routes
+			projects := protected.Group("/projects")
+			{
+				projects.POST("", projectHandler.CreateProject)
+				projects.GET("", projectHandler.ListProjects)
+				projects.GET("/:id", projectHandler.GetProject)
 			}
 
 			// Reasoning routes (Phase 3)

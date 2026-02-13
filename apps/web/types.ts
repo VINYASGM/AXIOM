@@ -1,11 +1,11 @@
 
 export enum IVCUStatus {
-  Draft = 'Draft',
-  Generating = 'Generating',
-  Verifying = 'Verifying',
-  Verified = 'Verified',
-  Deployed = 'Deployed',
-  Failed = 'Failed'
+  Draft = 'draft',
+  Generating = 'generating',
+  Verifying = 'verifying',
+  Verified = 'verified',
+  Deployed = 'deployed',
+  Failed = 'failed'
 }
 
 export enum ModelTier {
@@ -30,6 +30,7 @@ export interface IVCU {
   cost: number;
   verificationTiers: VerificationTier[];
   timestamp: number;
+  error?: string;
 }
 
 export interface MemoryNode {
@@ -71,4 +72,11 @@ export interface ProjectEconomics {
   current_usage: number;
   remaining_budget: number;
   project_id: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  owner_id: string;
+  created_at: string;
 }

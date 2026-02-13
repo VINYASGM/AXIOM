@@ -1,0 +1,149 @@
+name: AXIOM CI
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+    branches: ["main", "dev"]
+
+jobs:
+  # Go Backend Build & Test
+  backend-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.24" # Match Dockerfile
+
+      - name: Build
+        working-directory: ./apps/api
+        run: go build -v ./...
+
+      - name: Test
+        working-directory: ./apps/api
+        # Skip tests that require external services (Postgres, Redis) unless mocked
+        # For now, run unit tests only
+        run: go test -v ./... -short
+
+  # Python AI Service Test
+  ai-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: ./services/ai
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run tests
+        working-directory: ./services/ai
+        env:
+          OPENAI_API_KEY: "mock-key-for-ci"
+          ANTHROPIC_API_KEY: "mock-key-for-ci"
+          # Skip tests requiring live DB
+        run: |
+          # Run specific unit tests that don't need external services
+          # Or exclude integration tests
+          pytest -v -k "not integration and not e2e"
+
+  # Frontend Build Check
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "./apps/web/package-lock.json"
+
+      - name: Install dependencies
+        working-directory: ./apps/web
+        run: npm ci
+
+      - name: Build
+        working-directory: ./apps/web
+        run: npm run build
+
+  # Docker Build Check
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API Docker Image
+        run: docker build ./apps/api --file ./apps/api/Dockerfile
+
+      - name: Build AI Service Docker Image
+        run: docker build ./services/ai --file ./services/ai/Dockerfile
+
+      - name: Build Frontend Docker Image
+        run: docker build ./apps/web --file ./apps/web/Dockerfile
+
+  # Code Quality Checks
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Go Linting
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.24"
+
+      - name: Go Lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          working-directory: ./apps/api
+          args: --config=.golangci.yml
+
+      # Python Linting
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install Python Linting Tools
+        run: pip install flake8 black
+
+      - name: Python Lint (Flake8)
+        working-directory: ./services/ai
+        # Stop the build if there are Python syntax errors or undefined names
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Python Format Check (Black)
+        working-directory: ./services/ai
+        run: black . --check
+
+      # Frontend Linting (Basic check since no eslint config yet)
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+
+      - name: Install Frontend Dependencies
+        working-directory: ./apps/web
+        run: npm ci
+
+      - name: Frontend Format Check (Prettier)
+        working-directory: ./apps/web
+        # Running prettier directly via npx to avoid modifying package.json
+        run: npx prettier --check "**/*.{ts,tsx,js,jsx,json,css,md}"

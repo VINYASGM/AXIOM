@@ -82,6 +82,49 @@ type VerifierResult struct {
 	Duration   int64    `json:"duration_ms"`
 }
 
+// ProofCertificate represents a cryptographic proof of verification
+type ProofCertificate struct {
+	ID                 uuid.UUID           `json:"id"`
+	IVCUID             uuid.UUID           `json:"ivcu_id"`
+	ProofType          ProofType           `json:"proof_type"`
+	VerifierVersion    string              `json:"verifier_version"`
+	Timestamp          time.Time           `json:"timestamp"`
+	IntentID           uuid.UUID           `json:"intent_id"`
+	ASTHash            string              `json:"ast_hash"`
+	CodeHash           string              `json:"code_hash"`
+	VerifierSignatures []VerifierSignature `json:"verifier_signatures"`
+	Assertions         []FormalAssertion   `json:"assertions"`
+	ProofData          []byte              `json:"proof_data"`
+	HashChain          string              `json:"hash_chain"`
+	Signature          []byte              `json:"signature"`
+	CreatedAt          time.Time           `json:"created_at"`
+}
+
+// VerifierSignature represents a signature from a specific verifier
+type VerifierSignature struct {
+	Verifier  string    `json:"verifier"`
+	Signature string    `json:"signature"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// FormalAssertion represents a formal property verified
+type FormalAssertion struct {
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	Verified    bool   `json:"verified"`
+	Evidence    string `json:"evidence"`
+}
+
+// ProofType defines the type of proof
+type ProofType string
+
+const (
+	ProofTypeTypeSafety         ProofType = "type_safety"
+	ProofTypeMemorySafety       ProofType = "memory_safety"
+	ProofTypeContractCompliance ProofType = "contract_compliance"
+	ProofTypePropertyBased      ProofType = "property_based"
+)
+
 // User represents a user in the system
 type User struct {
 	ID               uuid.UUID  `json:"id"`
@@ -139,16 +182,16 @@ type GenerationLog struct {
 
 // UserSkill represents a user's proficiency in a specific skill
 type UserSkill struct {
-	UserID       uuid.UUID `json:"user_id"`
-	Skill        string    `json:"skill"`
-	Proficiency  int       `json:"proficiency"` // 1-10
-	LastUpdated  time.Time `json:"last_updated"`
+	UserID      uuid.UUID `json:"user_id"`
+	Skill       string    `json:"skill"`
+	Proficiency int       `json:"proficiency"` // 1-10
+	LastUpdated time.Time `json:"last_updated"`
 }
 
 // LearnerProfile aggregates user skills
 type LearnerProfile struct {
-	UserID      uuid.UUID            `json:"user_id"`
-	GlobalLevel string               `json:"global_level"` // novice, intermediate, expert
-	Skills      map[string]int       `json:"skills"`
-	LastUpdated time.Time            `json:"last_updated"`
+	UserID      uuid.UUID      `json:"user_id"`
+	GlobalLevel string         `json:"global_level"` // novice, intermediate, expert
+	Skills      map[string]int `json:"skills"`
+	LastUpdated time.Time      `json:"last_updated"`
 }

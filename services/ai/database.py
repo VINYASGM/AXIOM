@@ -52,7 +52,8 @@ class DatabaseService:
                 selected_candidate_id TEXT,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                meta JSONB DEFAULT '{}'::jsonb
+                meta JSONB DEFAULT '{}'::jsonb,
+                history JSONB DEFAULT '[]'::jsonb
             );
         """)
 
@@ -76,6 +77,7 @@ class DatabaseService:
         # Add column if not exists (migration)
         try:
             await conn.execute("ALTER TABLE candidates ADD COLUMN IF NOT EXISTS verification_result JSONB;")
+            await conn.execute("ALTER TABLE sdos ADD COLUMN IF NOT EXISTS history JSONB DEFAULT '[]'::jsonb;")
         except Exception:
             pass
         
@@ -246,8 +248,8 @@ class DatabaseService:
         async with self.pool.acquire() as conn:
             # Upsert SDO
             await conn.execute("""
-                INSERT INTO sdos (id, raw_intent, parsed_intent, language, status, confidence, code, selected_candidate_id, meta)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                INSERT INTO sdos (id, raw_intent, parsed_intent, language, status, confidence, code, selected_candidate_id, meta, history)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (id) DO UPDATE SET
                     raw_intent = EXCLUDED.raw_intent,
                     parsed_intent = EXCLUDED.parsed_intent,
@@ -257,6 +259,7 @@ class DatabaseService:
                     code = EXCLUDED.code,
                     selected_candidate_id = EXCLUDED.selected_candidate_id,
                     meta = EXCLUDED.meta,
+                    history = EXCLUDED.history,
                     updated_at = CURRENT_TIMESTAMP;
             """,
             sdo_data['id'],
@@ -267,7 +270,8 @@ class DatabaseService:
             sdo_data.get('confidence'),
             sdo_data.get('code'),
             sdo_data.get('selected_candidate_id'),
-            json.dumps(sdo_data.get('meta', {}))
+            json.dumps(sdo_data.get('meta', {})),
+            json.dumps(sdo_data.get('history', []))
             )
             
             # Save candidates if present
@@ -315,7 +319,7 @@ class DatabaseService:
             row = await conn.fetchrow("""
                 SELECT 
                     id::text, raw_intent, parsed_intent, language, status, confidence, code, 
-                    selected_candidate_id, meta,
+                    selected_candidate_id, meta, history,
                     EXTRACT(EPOCH FROM created_at) as created_at,
                     EXTRACT(EPOCH FROM updated_at) as updated_at
                 FROM sdos WHERE id = $1
@@ -328,6 +332,10 @@ class DatabaseService:
                 sdo['parsed_intent'] = json.loads(sdo['parsed_intent'])
             if sdo['meta']:
                 sdo['meta'] = json.loads(sdo['meta'])
+            if sdo.get('history'):
+                sdo['history'] = json.loads(sdo['history'])
+            else:
+                sdo['history'] = []
             
             # Fetch Candidates with epoch timestamps and text ID
             c_rows = await conn.fetch("""

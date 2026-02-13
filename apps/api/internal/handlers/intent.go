@@ -12,8 +12,11 @@ import (
 	"github.com/axiom/api/internal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
+
+var tracer = otel.Tracer("github.com/axiom/api/internal/handlers")
 
 // IntentHandler handles intent-related endpoints
 type IntentHandler struct {
@@ -52,6 +55,9 @@ type CreateIVCURequest struct {
 
 // ParseIntent parses raw intent into structured format
 func (h *IntentHandler) ParseIntent(c *gin.Context) {
+	ctx, span := tracer.Start(c.Request.Context(), "ParseIntent")
+	defer span.End()
+
 	var req ParseIntentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -65,7 +71,16 @@ func (h *IntentHandler) ParseIntent(c *gin.Context) {
 	}
 	jsonBody, _ := json.Marshal(reqBody)
 
-	resp, err := http.Post(h.aiServiceURL+"/parse-intent", "application/json", bytes.NewBuffer(jsonBody))
+	// Create request with context to propagate trace context
+	aiReq, err := http.NewRequestWithContext(ctx, "POST", h.aiServiceURL+"/parse-intent", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		h.logger.Error("failed to create request", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+	aiReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(aiReq)
 	if err != nil {
 		h.logger.Error("failed to call AI service", zap.Error(err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})
@@ -89,6 +104,9 @@ func (h *IntentHandler) ParseIntent(c *gin.Context) {
 
 // CreateIVCU creates a new Intent-Verified Code Unit
 func (h *IntentHandler) CreateIVCU(c *gin.Context) {
+	ctx, span := tracer.Start(c.Request.Context(), "CreateIVCU")
+	defer span.End()
+
 	var req CreateIVCURequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -127,7 +145,7 @@ func (h *IntentHandler) CreateIVCU(c *gin.Context) {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
 
-	_, err := h.db.Pool().Exec(c.Request.Context(), query,
+	_, err := h.db.Pool().Exec(ctx, query,
 		ivcu.ID, ivcu.ProjectID, ivcu.Version, ivcu.RawIntent, contractsJSON,
 		ivcu.Status, ivcu.ConfidenceScore, ivcu.CreatedAt, ivcu.UpdatedAt, ivcu.CreatedBy, paramsJSON,
 	)

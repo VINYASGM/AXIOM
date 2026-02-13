@@ -1,0 +1,70 @@
+{
+  "sdo_history": [
+    {
+      "timestamp": 1770984952.4310157,
+      "step_type": "intent_analysis",
+      "content": {
+        "intent": "Create a hello world python function",
+        "language": "python",
+        "constraints": [],
+        "candidate_count": 3
+      },
+      "confidence": 0.9,
+      "model_id": "workflow"
+    },
+    {
+      "timestamp": 1770984954.3998303,
+      "step_type": "candidate_generation",
+      "content": {
+        "models_used": [
+          "gpt-4-turbo",
+          "gpt-4-turbo",
+          "gpt-4-turbo"
+        ],
+        "candidates_count": 3
+      },
+      "confidence": 0.8,
+      "model_id": "gpt-4-turbo"
+    },
+    {
+      "timestamp": 1770984954.707032,
+      "step_type": "verification",
+      "content": {
+        "results": [
+          {
+            "id": "candidate-0",
+            "verified": true,
+            "confidence": 0.5
+          },
+          {
+            "id": "candidate-1",
+            "verified": true,
+            "confidence": 0.5
+          },
+          {
+            "id": "candidate-2",
+            "verified": true,
+            "confidence": 0.5
+          }
+        ],
+        "passed_count": 3,
+        "candidates_verified": 3
+      },
+      "confidence": 0.85,
+      "model_id": "verifier"
+    },
+    {
+      "timestamp": 1770984954.8753107,
+      "step_type": "candidate_selection",
+      "content": {
+        "total_cost": 0.0,
+        "selected_id": "candidate-0",
+        "selected_model": "gpt-4-turbo",
+        "selected_score": 85.0
+      },
+      "confidence": 0.9,
+      "model_id": "selector"
+    }
+  ],
+  "sdo_id": "a7cb1381-d478-4a98-8d83-d6f74fffeb29"
+}

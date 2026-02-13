@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -89,8 +90,8 @@ func RateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 
 		if !rl.Allow(key) {
 			remaining := rl.Remaining(key)
-			c.Header("X-RateLimit-Remaining", string(rune(remaining)))
-			c.Header("X-RateLimit-Limit", string(rune(rl.maxTokens)))
+			c.Header("X-RateLimit-Remaining", strconv.Itoa(remaining))
+			c.Header("X-RateLimit-Limit", strconv.Itoa(rl.maxTokens))
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error": APIError{
 					Code:       ErrCodeRateLimited,
@@ -103,8 +104,8 @@ func RateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 		}
 
 		// Set rate limit headers
-		c.Header("X-RateLimit-Remaining", string(rune(rl.Remaining(key))))
-		c.Header("X-RateLimit-Limit", string(rune(rl.maxTokens)))
+		c.Header("X-RateLimit-Remaining", strconv.Itoa(rl.Remaining(key)))
+		c.Header("X-RateLimit-Limit", strconv.Itoa(rl.maxTokens))
 
 		c.Next()
 	}

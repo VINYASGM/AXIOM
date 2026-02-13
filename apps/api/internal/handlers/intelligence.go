@@ -113,31 +113,32 @@ func (h *IntelligenceHandler) GetReasoningTrace(c *gin.Context) {
 		return
 	}
 
-	// 2. Fetch history from AI Service
-	resp, err := http.Get(h.aiServiceURL + "/history/" + sdoID)
+	// 2. Fetch SDO from AI Service (which contains history)
+	resp, err := http.Get(h.aiServiceURL + "/sdo/" + sdoID)
 	if err != nil {
-		h.logger.Error("failed to call AI service for history", zap.Error(err))
+		h.logger.Error("failed to call AI service for SDO", zap.Error(err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		h.logger.Error("AI service returned error for SDO", zap.Int("status", resp.StatusCode))
 		c.JSON(http.StatusBadGateway, gin.H{"error": "AI service returned error"})
 		return
 	}
 
-	var historyResponse map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&historyResponse); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode AI history"})
+	var sdoResponse map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&sdoResponse); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decode SDO response"})
 		return
 	}
 
-	// 3. Transform into simplified trace format (optional, or just return history)
-	// For now, return raw history as 'trace'
+	// 3. Extract history from the SDO response
+	history, _ := sdoResponse["history"]
 	c.JSON(http.StatusOK, gin.H{
 		"ivcuId": ivcuID,
-		"trace":  historyResponse,
+		"trace":  history,
 	})
 }
 
