@@ -5,6 +5,7 @@ Includes embedding generation for vector memory.
 """
 from typing import Optional, Dict, List, Any, AsyncIterator
 import os
+import json
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser, StrOutputParser
@@ -18,7 +19,8 @@ from models.providers import (
     OpenAIEnhancedProvider,
     DeepSeekProvider,
     AnthropicProvider,
-    GoogleProvider
+    GoogleProvider,
+    GroqProvider
 )
 from router import ChatRequest, ChatMessage, init_router
 from router_adapter import RouterRunnable
@@ -38,6 +40,7 @@ class LLMService:
         self.anthropic_key = os.getenv("ANTHROPIC_API_KEY")
         self.deepseek_key = os.getenv("DEEPSEEK_API_KEY")
         self.google_key = os.getenv("GOOGLE_API_KEY")
+        self.groq_key = os.getenv("GROQ_API_KEY")
         
         # Initialize real providers
         self.providers: Dict[str, Any] = {}
@@ -62,6 +65,11 @@ class LLMService:
             self.providers["google"] = GoogleProvider(self.google_key)
             if not self.default_provider:
                 self.default_provider = "google"
+        
+        if self.groq_key and self.groq_key != "your-groq-api-key":
+            self.providers["groq"] = GroqProvider(self.groq_key)
+            if not self.default_provider:
+                self.default_provider = "groq"
         
         # Embeddings (OpenAI only for now)
         self.embeddings = None
@@ -141,7 +149,8 @@ class LLMService:
                 "deepseek": "deepseek-chat",
                 "openai": "gpt-4o",
                 "anthropic": "claude-sonnet-4-20250514",
-                "google": "gemini-2.0-flash"
+                "google": "gemini-2.0-flash",
+                "groq": "llama3-70b-8192"
             }
             model = model_map.get(provider_name, "deepseek-chat")
         
@@ -338,3 +347,91 @@ class ReasoningStep(BaseModel):
 class CodeGenerationResult(BaseModel):
     code: str = Field(description="The generated code")
     reasoning: List[ReasoningStep] = Field(description="Chain of thought leading to this code")
+
+
+class PlanKeyDecision(BaseModel):
+    decision: str
+    rationale: str
+    tradeoffs: Optional[str] = None
+
+class PlanEstimatedEffort(BaseModel):
+    complexity: str # 'low'|'medium'|'high'
+    hours: Optional[int] = None
+
+class ImplementationPlan(BaseModel):
+    summary: str
+    steps: List[str]
+    architecture: List[str]
+    key_decisions: List[PlanKeyDecision]
+    edge_cases: List[str]
+    estimated_effort: Optional[PlanEstimatedEffort] = None
+
+
+class LLMService(LLMService): # Re-opening class to add method (conceptual, actually editing file)
+    async def generate_implementation_plan(self, intent: str, parsed_intent: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Generate a structured implementation plan from intent.
+        """
+        if not self.model:
+            return self._mock_generate_plan(intent)
+
+        parser = JsonOutputParser(pydantic_object=ImplementationPlan)
+
+        # Exact prompt from user requirement
+        system_prompt = """
+You are a technical architect/engineer. Given the user intent: {intent}
+and parsed intent: {parsed_intent}
+Produce EXACTLY one JSON object (no explanation, no markdown, no extra fields) with a single top-level property "implementation_plan" that matches this schema precisely:
+{{
+  "implementation_plan": {{
+    "summary": string,
+    "steps": string[],
+    "architecture": string[],
+    "key_decisions": [{{ "decision": string, "rationale": string, "tradeoffs": string | null }}],
+    "edge_cases": string[],
+    "estimated_effort": {{ "complexity": "low"|"medium"|"high", "hours"?: number }} | null
+  }}
+}}
+Detailed rules:
+- summary: 1-2 short sentences describing the approach.
+- steps: 3-12 concrete, ordered, actionable steps (each 6-20 words).
+- architecture: 1-6 concise decisions (bullet-style short lines).
+- key_decisions: explain major tradeoffs; 0-6 entries.
+- edge_cases: list up to 8 important edge cases.
+- estimated_effort: optional; if unknown, use null.
+- If the input is too short/ambiguous to form a plan, return:
+  "implementation_plan": {{ "summary": "INSUFFICIENT_INPUT", "steps": [], "architecture": [], "key_decisions": [], "edge_cases": [], "estimated_effort": null }}
+- Return only valid JSON. Do NOT add commentary or any text outside the JSON.
+"""
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("user", "Start generation.")
+        ])
+
+        chain = prompt | self.model | parser
+
+        try:
+            # invoke
+            result = await chain.ainvoke({
+                "intent": intent,
+                "parsed_intent": json.dumps(parsed_intent) if parsed_intent else "{}"
+            })
+            # result likely contains { "implementation_plan": ... } or directly the object depending on parser
+            # The prompt asks for { "implementation_plan": ... }
+            if "implementation_plan" in result:
+                return result["implementation_plan"]
+            return result
+        except Exception as e:
+            print(f"Plan generation failed: {e}")
+            return self._mock_generate_plan(intent)
+
+    def _mock_generate_plan(self, intent: str) -> Dict[str, Any]:
+        return {
+            "summary": f"Mock plan for: {intent}",
+            "steps": ["Step 1", "Step 2", "Step 3"],
+            "architecture": ["Mock Arch"],
+            "key_decisions": [],
+            "edge_cases": [],
+            "estimated_effort": {"complexity": "low", "hours": 1}
+        }

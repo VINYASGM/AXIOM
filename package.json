@@ -17,7 +17,8 @@
     "devDependencies": {
         "prettier": "^3.2.0",
         "turbo": "^2.0.0",
-        "typescript": "^5.4.0"
+        "typescript": "^5.4.0",
+        "vitest": "^4.0.18"
     },
     "engines": {
         "node": ">=20.0.0"

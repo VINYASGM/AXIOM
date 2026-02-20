@@ -112,9 +112,10 @@ func RateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 }
 
 // DefaultRateLimiter provides a default rate limiter for the API
-// 100 requests per minute per user
-var DefaultRateLimiter = NewRateLimiter(100, 10, time.Minute)
+// 100 requests per minute per user -> Bumped for Dev
+var DefaultRateLimiter = NewRateLimiter(500, 50, time.Minute)
 
 // StrictRateLimiter provides a stricter rate limiter for expensive operations
-// 20 requests per minute per user (for generation/verification)
-var StrictRateLimiter = NewRateLimiter(20, 2, time.Minute)
+// StrictRateLimiter provides a stricter rate limiter for expensive operations
+// 20 requests per minute per user (for generation/verification) -> Bumped for Dev
+var StrictRateLimiter = NewRateLimiter(200, 20, time.Minute)

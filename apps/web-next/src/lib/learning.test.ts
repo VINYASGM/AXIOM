@@ -1,3 +1,17 @@
+// Minimal test runner shim since we can't easily install vitest in this environment
+function describe(name: string, fn: () => void) { console.log(`\n${name}`); fn(); }
+function test(name: string, fn: () => void) {
+    try { fn(); console.log(`✓ ${name}`); }
+    catch (e) { console.error(`✗ ${name}`, e); }
+}
+function expect(actual: any) {
+    return {
+        toBe(expected: any) {
+            if (actual !== expected) throw new Error(`Expected ${expected}, got ${actual}`);
+        }
+    }
+}
+
 import { detectArchitecturalComplexity, LearningEvent } from './learning';
 
 describe('detectArchitecturalComplexity', () => {

@@ -29,6 +29,9 @@ type IVCU struct {
 	RawIntent    string                 `json:"raw_intent"`
 	ParsedIntent map[string]interface{} `json:"parsed_intent,omitempty"`
 
+	// Planning
+	ImplementationPlan map[string]interface{} `json:"implementation_plan,omitempty"`
+
 	// Contracts
 	Contracts []Contract `json:"contracts"`
 
