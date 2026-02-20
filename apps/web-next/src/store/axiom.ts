@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { ImplementationPlan } from '../types/ivcu';
 
 export interface IVCU {
     id: string;
@@ -10,6 +11,7 @@ export interface IVCU {
     status: 'draft' | 'generating' | 'verifying' | 'verified' | 'failed' | 'deployed';
     contracts: Contract[];
     verificationResult: VerificationResult | null;
+    implementation_plan?: ImplementationPlan | null;
     retrievedContext?: RetrievedContext;
     candidates?: Candidate[];
     selectedCandidateId?: string;
@@ -148,8 +150,9 @@ const initialState = {
     parsedIntent: null,
     parseConfidence: 0,
     suggestedRefinements: [],
-    token: null,
-    currentProject: { id: '123e4567-e89b-12d3-a456-426614174000', name: 'Demo Project', security_context: 'public' }, // Mock default project
+    // Hardcoded dev token for local development (Expires Feb 2027)
+    token: "eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9.eyJ1c2VyX2lkIjogImU4MmJmZjkyLTkyNDEtNDBjMi1iNzA1LTYyZTllNzQ4YjlhYSIsICJlbWFpbCI6ICJkZXZlbG9wZXJAYXhpb20uZGV2IiwgInJvbGUiOiAiZGV2ZWxvcGVyIiwgInN1YiI6ICJlODJiZmY5Mi05MjQxLTQwYzItYjcwNS02MmU5ZTc0OGI5YWEiLCAiZXhwIjogMTgwMjc1ODM3OCwgImlhdCI6IDE3NzEyMjIzNzh9.h6bNp8hHmnZv3Df20WLjOmzyhig4vBL9WQZJpFX-PJQ",
+    currentProject: { id: '3e540288-5e5c-4bc9-8213-66e3bc092254', name: 'Dev Project', security_context: 'public' }, // Actual dev project
     learnerProfile: null,
 };
 
@@ -216,19 +219,33 @@ export const useAxiomStore = create<AxiomState>((set, get) => ({
             ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
             : { 'Content-Type': 'application/json' };
 
+        console.log("Generating with headers:", headers);
+
         try {
+            if (!currentProject?.id) {
+                console.error("No project selected");
+                set({ isGenerating: false })
+                return;
+            }
             // 1. Create SDO/Intent
             const createRes = await fetch('/api/v1/intent/create', {
                 method: 'POST',
                 headers,
                 body: JSON.stringify({
-                    project_id: currentProject?.id || 'default-project',
+                    project_id: currentProject.id,
                     raw_intent: rawIntent,
-                    contracts: []
                 })
             });
 
-            if (!createRes.ok) throw new Error('Failed to create intent');
+            if (!createRes.ok) {
+                const text = await createRes.text();
+                // Enhanced Debugging
+                console.error("Failed to create intent. Status:", createRes.status);
+                console.error("Response:", text);
+                console.error("Sent Token:", token ? token.substring(0, 10) + "..." : "No Token");
+
+                throw new Error(`Failed to create intent: ${createRes.status} ${text}`);
+            }
             const { ivcu_id } = await createRes.json();
 
             // 2. Start Generation Strategy (Async)
@@ -284,6 +301,7 @@ export const useAxiomStore = create<AxiomState>((set, get) => ({
                                         status: ivcuData.status,
                                         contracts: ivcuData.contracts || [],
                                         verificationResult: ivcuData.verification_result,
+                                        implementation_plan: ivcuData.implementation_plan ?? null,
                                         costUsd: 0
                                     },
                                     isGenerating: false

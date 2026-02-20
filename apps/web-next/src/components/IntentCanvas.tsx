@@ -3,7 +3,13 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAxiomStore } from '@/store/axiom';
-import { Send, Loader2, Sparkles, Lightbulb, DollarSign, AlertCircle, RotateCcw, RotateCw } from 'lucide-react';
+import { Send, Loader2, Sparkles, Lightbulb, DollarSign, AlertCircle, RotateCcw, RotateCw, GraduationCap } from 'lucide-react';
+import {
+    SkillLevel,
+    detectArchitecturalComplexity,
+    emitLearningEvent,
+    adaptiveUIConfig
+} from '@/lib/learning';
 
 const activeUsers = [
     { id: '1', name: 'Alice', color: 'bg-purple-500' },
@@ -40,6 +46,9 @@ export function IntentCanvas() {
 
     const [isParsing, setIsParsing] = useState(false);
     const [candidateCount, setCandidateCount] = useState(3);
+    const [skillLevel, setSkillLevel] = useState<SkillLevel>('intermediate');
+
+    const uiConfig = adaptiveUIConfig[skillLevel];
 
     const { analyzeIntent, generateCode } = useAxiomStore();
 
@@ -55,6 +64,19 @@ export function IntentCanvas() {
         return () => clearTimeout(timer);
     }, [rawIntent, analyzeIntent]);
 
+    // Adaptive Learning: Emit event on intent analysis completion
+    useEffect(() => {
+        if (parsedIntent && !isParsing) {
+            const eventType = detectArchitecturalComplexity(parsedIntent);
+            emitLearningEvent({
+                type: eventType,
+                skillLevel,
+                intentId: (parsedIntent as any)?.id,
+                timestamp: Date.now()
+            });
+        }
+    }, [parsedIntent, isParsing, skillLevel]);
+
     const handleGenerate = async () => {
         if (!rawIntent.trim() || isGenerating) return;
         await generateCode();
@@ -66,6 +88,20 @@ export function IntentCanvas() {
                 <div className="flex items-center gap-2 text-blue-400">
                     <Sparkles className="w-5 h-5" />
                     <span className="font-semibold tracking-wide uppercase text-sm">Intent Canvas</span>
+
+                    {/* Skill Level Toggle for Demo */}
+                    <button
+                        onClick={() => {
+                            const levels: SkillLevel[] = ['beginner', 'intermediate', 'advanced', 'expert'];
+                            const next = levels[(levels.indexOf(skillLevel) + 1) % levels.length];
+                            setSkillLevel(next);
+                        }}
+                        className="ml-2 flex items-center gap-1 px-2 py-0.5 rounded bg-blue-500/10 text-xs text-blue-300 hover:bg-blue-500/20"
+                        title="Click to toggle skill level"
+                    >
+                        <GraduationCap className="w-3 h-3" />
+                        {skillLevel}
+                    </button>
                 </div>
                 {isParsing && (
                     <div className="flex items-center gap-2 text-sm text-gray-400">
@@ -96,6 +132,33 @@ export function IntentCanvas() {
                     )}
                 </AnimatePresence>
             </div>
+
+            {/* Adaptive UI: Hints & Examples */}
+            <AnimatePresence>
+                {uiConfig.showExamples && !rawIntent && (
+                    <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="mb-4 overflow-hidden"
+                    >
+                        <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-sm text-blue-300">
+                            <p className="flex items-center gap-2 mb-2 font-medium">
+                                <Lightbulb className="w-4 h-4" />
+                                Try these examples:
+                            </p>
+                            <div className="space-y-1 pl-6">
+                                <button className="block hover:underline" onClick={() => setRawIntent("Create a Todo app with React and Tailwind")}>
+                                    &quot;Create a Todo app...&quot;
+                                </button>
+                                <button className="block hover:underline" onClick={() => setRawIntent("Build a REST API for a bookstore in Go")}>
+                                    &quot;Build a REST API...&quot;
+                                </button>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">

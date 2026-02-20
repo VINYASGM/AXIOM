@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -119,6 +120,30 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 	// Update IVCU status to generating
 	updateQuery := `UPDATE ivcus SET status = 'generating', updated_at = NOW() WHERE id = $1`
 	h.db.Pool().Exec(ctx, updateQuery, req.IVCUID)
+
+	// 2. Generate Implementation Plan (Sync for now, or async if slow)
+	// We do this before starting code generation to provide immediate feedback
+	planReq := map[string]interface{}{
+		"intent":        rawIntent,
+		"parsed_intent": nil, // We could pass parsed intent if we had it easily accessible here
+	}
+	planJSON, _ := json.Marshal(planReq)
+
+	planResp, err := http.Post(h.aiServiceURL+"/generate/plan", "application/json", bytes.NewBuffer(planJSON))
+	if err == nil && planResp.StatusCode == http.StatusOK {
+		var planResult map[string]interface{}
+		if err := json.NewDecoder(planResp.Body).Decode(&planResult); err == nil {
+			if plan, ok := planResult["implementation_plan"]; ok {
+				// Save plan to DB
+				planBytes, _ := json.Marshal(plan)
+				updatePlanQuery := `UPDATE ivcus SET implementation_plan = $1 WHERE id = $2`
+				h.db.Pool().Exec(ctx, updatePlanQuery, planBytes, req.IVCUID)
+			}
+		}
+		planResp.Body.Close()
+	} else {
+		h.logger.Warn("failed to generate implementation plan", zap.Error(err))
+	}
 
 	// Call AI service to generate code
 	go h.generateCode(req.IVCUID, projectID, sdoID, rawIntent, req.Language, userID, req.CandidateCount, req.Strategy, estimatedCost)

@@ -174,12 +174,13 @@ func (h *IntentHandler) GetIVCU(c *gin.Context) {
 	query := `
 		SELECT id, project_id, version, raw_intent, parsed_intent, contracts,
 		       verification_result, confidence_score, code, language,
-		       model_id, model_version, status, created_at, updated_at, created_by
+		       model_id, model_version, status, created_at, updated_at, created_by,
+		       implementation_plan
 		FROM ivcus WHERE id = $1
 	`
 
 	var ivcu models.IVCU
-	var parsedIntentJSON, contractsJSON, verificationJSON []byte
+	var parsedIntentJSON, contractsJSON, verificationJSON, implementationPlanJSON []byte
 	var code, language, modelID, modelVersion *string
 
 	err = h.db.Pool().QueryRow(c.Request.Context(), query, ivcuID).Scan(
@@ -187,6 +188,7 @@ func (h *IntentHandler) GetIVCU(c *gin.Context) {
 		&parsedIntentJSON, &contractsJSON, &verificationJSON,
 		&ivcu.ConfidenceScore, &code, &language,
 		&modelID, &modelVersion, &ivcu.Status, &ivcu.CreatedAt, &ivcu.UpdatedAt, &ivcu.CreatedBy,
+		&implementationPlanJSON,
 	)
 
 	if err != nil {
@@ -200,6 +202,9 @@ func (h *IntentHandler) GetIVCU(c *gin.Context) {
 	}
 	if len(contractsJSON) > 0 {
 		json.Unmarshal(contractsJSON, &ivcu.Contracts)
+	}
+	if len(implementationPlanJSON) > 0 {
+		json.Unmarshal(implementationPlanJSON, &ivcu.ImplementationPlan)
 	}
 	if code != nil {
 		ivcu.Code = *code

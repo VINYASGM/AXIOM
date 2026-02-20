@@ -455,6 +455,40 @@ async def generate_code(request: GenerateRequest):
         reasoning=f"Generated {sdo.language} code. Latency: {latency:.3f}s"
     )
 
+# ============================================================================
+# Implementation Plan Endpoint
+# ============================================================================
+
+class GeneratePlanRequest(BaseModel):
+    intent: str
+    parsed_intent: Optional[Dict[str, Any]] = None
+
+class GeneratePlanResponse(BaseModel):
+    implementation_plan: Dict[str, Any]
+
+@app.post("/generate/plan", response_model=GeneratePlanResponse)
+async def generate_plan(request: GeneratePlanRequest):
+    """
+    Generate a structured implementation plan from intent.
+    """
+    try:
+        plan = await llm_service.generate_implementation_plan(
+            intent=request.intent,
+            parsed_intent=request.parsed_intent
+        )
+        return GeneratePlanResponse(implementation_plan=plan)
+    except Exception as e:
+        # Fallback to empty/error plan
+        print(f"Plan generation failed: {e}")
+        return GeneratePlanResponse(implementation_plan={
+            "summary": "Failed to generate plan",
+            "steps": [],
+            "architecture": [],
+            "key_decisions": [],
+            "edge_cases": [],
+            "estimated_effort": None
+        })
+
 class GraphNode(BaseModel):
     id: str
     label: str

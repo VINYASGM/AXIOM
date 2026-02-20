@@ -398,7 +398,8 @@ def init_router(llm_service=None) -> LLMRouter:
             DeepSeekProvider,
             OpenAIEnhancedProvider,
             AnthropicProvider,
-            GoogleProvider
+            GoogleProvider,
+            GroqProvider
         )
         import os
         
@@ -428,6 +429,14 @@ def init_router(llm_service=None) -> LLMRouter:
         if google_key and google_key != "your-google-api-key":
             provider = GoogleProvider(google_key)
             _global_router.register_provider("google", provider)
+        
+        # Register Groq
+        groq_key = os.getenv("GROQ_API_KEY")
+        if groq_key and groq_key != "your-groq-api-key":
+            provider = GroqProvider(groq_key)
+            _global_router.register_provider("groq", provider)
+            if not _global_router.fallback or _global_router.fallback == "mock":
+                _global_router.set_fallback("groq")
         
     except ImportError as e:
         print(f"Warning: Could not import providers: {e}")

@@ -292,6 +292,121 @@ class DeepSeekProvider(LLMProvider):
         return self.api_key is not None
 
 
+class GroqProvider(LLMProvider):
+    """Groq provider (Llama 3, Mixtral). OpenAI-compatible."""
+    
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key or os.getenv("GROQ_API_KEY")
+        self.base_url = "https://api.groq.com/openai/v1"
+    
+    @property
+    def name(self) -> str:
+        return "groq"
+    
+    @property
+    def models(self) -> List[str]:
+        return [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-70b-versatile",
+            "llama-3.1-8b-instant",
+            "llama3-70b-8192",
+            "llama3-8b-8192",
+            "mixtral-8x7b-32768",
+            "gemma2-9b-it"
+        ]
+    
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        if not self.api_key:
+            raise ValueError("Groq API key not configured")
+        
+        start = time.time()
+        
+        try:
+            import httpx
+        except ImportError:
+            raise ImportError("httpx package not installed. Run: pip install httpx")
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": request.model,
+                    "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+                    "temperature": request.temperature,
+                    "max_tokens": request.max_tokens,
+                    "stream": False
+                },
+                timeout=60.0
+            )
+            response.raise_for_status()
+            data = response.json()
+        
+        latency = (time.time() - start) * 1000
+        
+        choice = data["choices"][0]
+        usage = data.get("usage", {})
+        
+        return ChatResponse(
+            content=choice["message"]["content"],
+            model=request.model,
+            provider=self.name,
+            usage={
+                "input_tokens": usage.get("prompt_tokens", 0),
+                "output_tokens": usage.get("completion_tokens", 0)
+            },
+            latency_ms=latency,
+            finish_reason=choice.get("finish_reason", "stop")
+        )
+    
+    async def chat_stream(self, request: ChatRequest) -> AsyncIterator[str]:
+        """Stream response tokens."""
+        if not self.api_key:
+            raise ValueError("Groq API key not configured")
+        
+        try:
+            import httpx
+        except ImportError:
+            raise ImportError("httpx package not installed")
+        
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": request.model,
+                    "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+                    "temperature": request.temperature,
+                    "max_tokens": request.max_tokens,
+                    "stream": True
+                },
+                timeout=60.0
+            ) as response:
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data == "[DONE]":
+                            break
+                        try:
+                            import json
+                            chunk = json.loads(data)
+                            content = chunk["choices"][0]["delta"].get("content", "")
+                            if content:
+                                yield content
+                        except:
+                            continue
+    
+    async def health_check(self) -> bool:
+        return self.api_key is not None
+
+
 class OpenAIEnhancedProvider(LLMProvider):
     """Enhanced OpenAI provider with streaming and GPT-4o support."""
     
@@ -384,7 +499,8 @@ def create_provider(provider_name: str, **kwargs) -> Optional[LLMProvider]:
         "anthropic": AnthropicProvider,
         "google": GoogleProvider,
         "deepseek": DeepSeekProvider,
-        "openai": OpenAIEnhancedProvider
+        "openai": OpenAIEnhancedProvider,
+        "groq": GroqProvider
     }
     
     provider_class = providers.get(provider_name)
@@ -399,5 +515,6 @@ def get_available_providers() -> Dict[str, bool]:
         "anthropic": bool(os.getenv("ANTHROPIC_API_KEY")),
         "google": bool(os.getenv("GOOGLE_API_KEY")),
         "deepseek": bool(os.getenv("DEEPSEEK_API_KEY")),
-        "openai": bool(os.getenv("OPENAI_API_KEY"))
+        "openai": bool(os.getenv("OPENAI_API_KEY")),
+        "groq": bool(os.getenv("GROQ_API_KEY"))
     }
