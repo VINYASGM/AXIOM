@@ -8,12 +8,13 @@ import React from 'react';
 import { render, screen, fireEvent, act, cleanup, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-// Mock framer-motion to avoid JSDOM rendering failures
+// ─── Mock framer-motion ──────────────────────────────────────
+// NOTE: vi.mock factories are hoisted. We use `await vi.importActual` for React
+// inside framer-motion only — this is safe because framer-motion is not React itself.
 vi.mock('framer-motion', async () => {
-  const React = await vi.importActual<typeof import('react')>('react');
+  const R = await vi.importActual<typeof import('react')>('react');
 
-  const FakeMotion = React.forwardRef(({ children, ...props }: any, ref: any) => {
-    // Filter out motion-specific props that might confuse DOM elements
+  const FakeMotion = R.forwardRef(({ children, ...props }: any, ref: any) => {
     const {
       initial, animate, exit, variants, transition,
       whileHover, whileTap, whileFocus, whileDrag, whileInView,
@@ -26,7 +27,6 @@ vi.mock('framer-motion', async () => {
       ...domProps
     } = props as any;
 
-    // Sanitize style: MotionValue objects have .get() — resolve to plain values
     let safeStyle: Record<string, any> | undefined;
     if (rawStyle && typeof rawStyle === 'object') {
       safeStyle = {};
@@ -39,39 +39,66 @@ vi.mock('framer-motion', async () => {
       }
     }
 
-    return React.createElement('div', { ...domProps, style: safeStyle, ref }, children);
+    return R.createElement('div', { ...domProps, style: safeStyle, ref }, children);
   });
 
   const motionProxy = new Proxy({}, {
-    get: (target, prop) => {
-      return FakeMotion;
-    }
+    get: (_target: any, _prop: any) => FakeMotion,
   });
 
   return {
     __esModule: true,
     motion: motionProxy,
-    AnimatePresence: ({ children }: any) => React.createElement(React.Fragment, null, children),
-    LayoutGroup: ({ children }: any) => React.createElement(React.Fragment, null, children),
+    AnimatePresence: ({ children }: any) => R.createElement(R.Fragment, null, children),
+    LayoutGroup: ({ children }: any) => R.createElement(R.Fragment, null, children),
     useMotionValue: (v: number) => ({ get: () => v, set: () => { }, onChange: () => () => { } }),
     useSpring: (v: number) => ({ get: () => v, set: () => { }, onChange: () => () => { } }),
-    useTransform: (v: any) => ({ get: () => 0, set: () => { }, onChange: () => () => { } }),
+    useTransform: (_v: any) => ({ get: () => 0, set: () => { }, onChange: () => () => { } }),
   };
 });
 
-// Mock lucide-react to avoid Icon rendering issues
-vi.mock('lucide-react', async (importOriginal) => {
-  const actual = await importOriginal<any>();
-  const React = await vi.importActual<typeof import('react')>('react');
-  return new Proxy(actual, {
-    get: (target, prop) => {
-      if (prop === '__esModule') return true;
-      if (prop === 'default') return target;
-      if (prop === 'then') return undefined; // Promise check
-      // Intercept ALL other component exports
-      return (props: any) => React.createElement('span', { 'data-testid': `icon-${String(prop)}`, ...props });
-    }
-  });
+// ─── Mock lucide-react with explicit named exports ───────────
+// All icon factories are defined inline to avoid hoisting issues.
+vi.mock('lucide-react', async () => {
+  const R = await vi.importActual<typeof import('react')>('react');
+  const mkIcon = (name: string) => {
+    const Icon = (props: any) => R.createElement('span', { 'data-testid': `icon-${name}`, ...props });
+    Icon.displayName = name;
+    return Icon;
+  };
+  return {
+    __esModule: true,
+    Send: mkIcon('Send'),
+    Wand2: mkIcon('Wand2'),
+    Undo2: mkIcon('Undo2'),
+    Redo2: mkIcon('Redo2'),
+    Activity: mkIcon('Activity'),
+    CheckCircle2: mkIcon('CheckCircle2'),
+    Clock: mkIcon('Clock'),
+    AlertCircle: mkIcon('AlertCircle'),
+    ChevronRight: mkIcon('ChevronRight'),
+    ChevronDown: mkIcon('ChevronDown'),
+    ChevronUp: mkIcon('ChevronUp'),
+    Info: mkIcon('Info'),
+    Image: mkIcon('Image'),
+    X: mkIcon('X'),
+    Sparkles: mkIcon('Sparkles'),
+    Layers: mkIcon('Layers'),
+    Terminal: mkIcon('Terminal'),
+    ShieldCheck: mkIcon('ShieldCheck'),
+    Zap: mkIcon('Zap'),
+    Box: mkIcon('Box'),
+    Cpu: mkIcon('Cpu'),
+    Fingerprint: mkIcon('Fingerprint'),
+    Save: mkIcon('Save'),
+    History: mkIcon('History'),
+    Code: mkIcon('Code'),
+    Copy: mkIcon('Copy'),
+    Lock: mkIcon('Lock'),
+    XCircle: mkIcon('XCircle'),
+    DollarSign: mkIcon('DollarSign'),
+    LucideIcon: mkIcon('LucideIcon'),
+  };
 });
 
 // Mock API client
@@ -86,6 +113,39 @@ vi.mock('../lib/tree-sitter', () => ({
   initTreeSitter: vi.fn().mockResolvedValue(undefined),
   getParser: vi.fn().mockResolvedValue(null),
   SupportedLanguage: { PYTHON: 'python', JAVASCRIPT: 'javascript', TYPESCRIPT: 'typescript' },
+}));
+
+// Mock learnerStore to avoid zustand issues in test
+vi.mock('../src/store/learnerStore', () => ({
+  useLearnerStore: Object.assign(vi.fn().mockReturnValue({
+    recordEvent: vi.fn(),
+    skills: {},
+    profile: null,
+  }), {
+    getState: vi.fn().mockReturnValue({
+      recordEvent: vi.fn(),
+      skills: {},
+      profile: null,
+    }),
+  }),
+  SkillDomain: {
+    ArchitecturalReasoning: 'architectural_reasoning',
+    CodeGeneration: 'code_generation',
+    SecurityAwareness: 'security_awareness',
+  },
+}));
+
+// Mock AdaptiveWrapper to just render children
+vi.mock('./AdaptiveWrapper', async () => {
+  const R = await vi.importActual<typeof import('react')>('react');
+  return {
+    AdaptiveWrapper: ({ children }: any) => R.createElement(R.Fragment, null, children),
+  };
+});
+
+// Mock AdaptiveScaffolding
+vi.mock('./AdaptiveScaffolding', () => ({
+  ScaffoldingLevel: { Beginner: 'beginner', Intermediate: 'intermediate', Expert: 'expert' },
 }));
 
 import IntentCanvas from './IntentCanvas';
@@ -112,6 +172,7 @@ describe('IntentCanvas Component Strategy', () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   it('PROBE: Undo/Redo Semantic Stack Integrity', async () => {

@@ -1,0 +1,97 @@
+﻿{"level":"info","ts":1770993269.6989074,"caller":"server/main.go:56","msg":"AXIOM API starting...","version":"0.1.0","environment":""}
+{"level":"info","ts":1770993269.6991725,"caller":"server/main.go:61","msg":"Loading configuration..."}
+{"level":"info","ts":1770993269.6991856,"caller":"server/main.go:65","msg":"Initializing telemetry..."}
+{"level":"info","ts":1770993269.699924,"caller":"server/main.go:79","msg":"Initializing NATS..."}
+{"level":"error","ts":1770993269.702934,"caller":"server/main.go:83","msg":"failed to connect to NATS","error":"nats: no servers available for connection","stacktrace":"main.main\n\t/app/cmd/server/main.go:83\nruntime.main\n\t/usr/local/go/src/runtime/proc.go:283"}
+{"level":"info","ts":1770993269.703001,"caller":"server/main.go:98","msg":"Initializing Verifier Client..."}
+{"level":"info","ts":1770993269.703037,"caller":"server/main.go:103","msg":"connected to Verifier Service","client":{}}
+{"level":"info","ts":1770993269.7030654,"caller":"server/main.go:106","msg":"Initializing Temporal..."}
+2026/02/13 14:34:29 INFO  No logger configured for temporal client. Created default one.
+{"level":"info","ts":1770993269.7228541,"caller":"server/main.go:114","msg":"connected to temporal"}
+{"level":"info","ts":1770993269.7327473,"caller":"server/main.go:135","msg":"Running database migrations..."}
+{"level":"info","ts":1770993269.759911,"caller":"server/main.go:139","msg":"Database migrations applied successfully"}
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] GET    /docs/*any                --> github.com/swaggo/gin-swagger.CustomWrapHandler.func1 (5 handlers)
+{"level":"info","ts":1770993269.7602987,"caller":"server/main.go:156","msg":"Registering /metrics endpoint"}
+[GIN-debug] GET    /metrics                  --> main.main.WrapH.func8 (5 handlers)
+[GIN-debug] GET    /health                   --> github.com/axiom/api/internal/handlers.(*HealthHandler).Health-fm (5 handlers)
+[GIN-debug] GET    /health/deep              --> github.com/axiom/api/internal/handlers.(*HealthHandler).DeepHealth-fm (5 handlers)
+{"level":"info","ts":1770993269.7604837,"caller":"server/main.go:170","msg":"Router initialized, setting up handlers..."}
+[GIN-debug] POST   /api/v1/auth/register     --> github.com/axiom/api/internal/handlers.(*AuthHandler).Register-fm (5 handlers)
+[GIN-debug] POST   /api/v1/auth/login        --> github.com/axiom/api/internal/handlers.(*AuthHandler).Login-fm (5 handlers)
+[GIN-debug] POST   /api/v1/auth/refresh      --> github.com/axiom/api/internal/handlers.(*AuthHandler).RefreshToken-fm (5 handlers)
+[GIN-debug] GET    /api/v1/graph             --> github.com/axiom/api/internal/handlers.(*IntentHandler).GetGraph-fm (5 handlers)
+[GIN-debug] POST   /api/v1/cost/estimate     --> github.com/axiom/api/internal/handlers.(*EconomicsHandler).EstimateCost-fm (7 handlers)
+[GIN-debug] GET    /api/v1/cost/session/:sessionId --> github.com/axiom/api/internal/handlers.(*EconomicsHandler).GetSessionCost-fm (7 handlers)
+[GIN-debug] POST   /api/v1/intent/parse      --> github.com/axiom/api/internal/handlers.(*IntentHandler).ParseIntent-fm (7 handlers)
+[GIN-debug] POST   /api/v1/intent/create     --> github.com/axiom/api/internal/handlers.(*IntentHandler).CreateIVCU-fm (7 handlers)
+[GIN-debug] GET    /api/v1/intent/:id        --> github.com/axiom/api/internal/handlers.(*IntentHandler).GetIVCU-fm (7 handlers)
+[GIN-debug] PUT    /api/v1/intent/:id        --> github.com/axiom/api/internal/handlers.(*IntentHandler).UpdateIVCU-fm (7 handlers)
+[GIN-debug] DELETE /api/v1/intent/:id        --> github.com/axiom/api/internal/handlers.(*IntentHandler).DeleteIVCU-fm (7 handlers)
+[GIN-debug] GET    /api/v1/intent/project/:projectId --> github.com/axiom/api/internal/handlers.(*IntentHandler).ListProjectIVCUs-fm (7 handlers)
+[GIN-debug] POST   /api/v1/generation/start  --> github.com/axiom/api/internal/handlers.(*GenerationHandler).StartGeneration-fm (9 handlers)
+[GIN-debug] GET    /api/v1/generation/:id/status --> github.com/axiom/api/internal/handlers.(*GenerationHandler).GetGenerationStatus-fm (9 handlers)
+[GIN-debug] POST   /api/v1/generation/:id/cancel --> github.com/axiom/api/internal/handlers.(*GenerationHandler).CancelGeneration-fm (9 handlers)
+[GIN-debug] POST   /api/v1/verification/verify --> github.com/axiom/api/internal/handlers.(*VerificationHandler).Verify-fm (5 handlers)
+[GIN-debug] GET    /api/v1/verification/:id  --> github.com/axiom/api/internal/handlers.(*VerificationHandler).GetResult-fm (5 handlers)
+[GIN-debug] GET    /api/v1/project/:projectId/team --> github.com/axiom/api/internal/handlers.(*TeamHandler).ListMembers-fm (8 handlers)
+[GIN-debug] POST   /api/v1/project/:projectId/team/invite --> github.com/axiom/api/internal/handlers.(*TeamHandler).AddMember-fm (8 handlers)
+[GIN-debug] DELETE /api/v1/project/:projectId/team/:userId --> github.com/axiom/api/internal/handlers.(*TeamHandler).RemoveMember-fm (8 handlers)
+[GIN-debug] GET    /api/v1/user/me           --> github.com/axiom/api/internal/handlers.(*AuthHandler).GetCurrentUser-fm (7 handlers)
+[GIN-debug] PUT    /api/v1/user/me/settings  --> github.com/axiom/api/internal/handlers.(*AuthHandler).UpdateSettings-fm (7 handlers)
+[GIN-debug] GET    /api/v1/user/learner      --> github.com/axiom/api/internal/handlers.(*IntelligenceHandler).GetUserLearner-fm (7 handlers)
+[GIN-debug] POST   /api/v1/user/learner/event --> github.com/axiom/api/internal/handlers.(*IntelligenceHandler).PostLearningEvent-fm (7 handlers)
+[GIN-debug] POST   /api/v1/projects          --> github.com/axiom/api/internal/handlers.(*ProjectHandler).CreateProject-fm (7 handlers)
+[GIN-debug] GET    /api/v1/projects          --> github.com/axiom/api/internal/handlers.(*ProjectHandler).ListProjects-fm (7 handlers)
+[GIN-debug] GET    /api/v1/projects/:id      --> github.com/axiom/api/internal/handlers.(*ProjectHandler).GetProject-fm (7 handlers)
+[GIN-debug] GET    /api/v1/reasoning/:ivcuId --> github.com/axiom/api/internal/handlers.(*IntelligenceHandler).GetReasoningTrace-fm (7 handlers)
+[GIN-debug] POST   /api/v1/speculate         --> github.com/axiom/api/internal/handlers.(*SpeculationHandler).AnalyzeIntent-fm (7 handlers)
+{"level":"info","ts":1770993269.7607892,"caller":"server/main.go:287","msg":"starting server","port":"8080"}
+{"level":"info","ts":1770993277.3427513,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/metrics","status":200,"latency":0.001953884,"client_ip":"172.20.0.8"}
+{"level":"info","ts":1770993292.3424933,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/metrics","status":200,"latency":0.002323979,"client_ip":"172.20.0.8"}
+{"level":"info","ts":1770993294.6201203,"caller":"middleware/request_logger.go:45","msg":"request","method":"POST","path":"/api/v1/auth/login","status":200,"latency":0.009774008,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993294.6654065,"caller":"handlers/intelligence.go:174","msg":"calling AI service for learning event","url":"http://ai:8000/learner/event"}
+{"level":"info","ts":1770993294.6684504,"caller":"handlers/intelligence.go:184","msg":"AI service response","status":200}
+{"level":"info","ts":1770993294.6685932,"caller":"handlers/intelligence.go:191","msg":"AI service returned updated skills","skills":{}}
+{"level":"info","ts":1770993294.6686933,"caller":"middleware/request_logger.go:45","msg":"request","method":"POST","path":"/api/v1/user/learner/event","status":200,"latency":0.045789558,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993295.674139,"caller":"handlers/intelligence.go:50","msg":"Learner profile not found, returning default","user_id":"789abb74-12a6-427f-822d-eb76b3d29554"}
+{"level":"info","ts":1770993295.6743646,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/api/v1/user/learner","status":200,"latency":0.00253638,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993297.6880493,"caller":"middleware/request_logger.go:45","msg":"request","method":"POST","path":"/api/v1/auth/login","status":200,"latency":0.003981045,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993297.7333055,"caller":"handlers/intelligence.go:174","msg":"calling AI service for learning event","url":"http://ai:8000/learner/event"}
+{"level":"info","ts":1770993297.7385218,"caller":"handlers/intelligence.go:184","msg":"AI service response","status":200}
+{"level":"info","ts":1770993297.738652,"caller":"handlers/intelligence.go:191","msg":"AI service returned updated skills","skills":{}}
+{"level":"info","ts":1770993297.7387042,"caller":"middleware/request_logger.go:45","msg":"request","method":"POST","path":"/api/v1/user/learner/event","status":200,"latency":0.048096833,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993298.7430174,"caller":"handlers/intelligence.go:50","msg":"Learner profile not found, returning default","user_id":"789abb74-12a6-427f-822d-eb76b3d29554"}
+{"level":"info","ts":1770993298.743169,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/api/v1/user/learner","status":200,"latency":0.001234109,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993300.7552423,"caller":"middleware/request_logger.go:45","msg":"request","method":"POST","path":"/api/v1/auth/login","status":200,"latency":0.004480108,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993300.8014617,"caller":"handlers/intelligence.go:174","msg":"calling AI service for learning event","url":"http://ai:8000/learner/event"}
+{"level":"info","ts":1770993300.804357,"caller":"handlers/intelligence.go:184","msg":"AI service response","status":200}
+{"level":"info","ts":1770993300.80445,"caller":"handlers/intelligence.go:191","msg":"AI service returned updated skills","skills":{}}
+{"level":"info","ts":1770993300.8044937,"caller":"middleware/request_logger.go:45","msg":"request","method":"POST","path":"/api/v1/user/learner/event","status":200,"latency":0.04636113,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993301.8088682,"caller":"handlers/intelligence.go:50","msg":"Learner profile not found, returning default","user_id":"789abb74-12a6-427f-822d-eb76b3d29554"}
+{"level":"info","ts":1770993301.8090398,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/api/v1/user/learner","status":200,"latency":0.001145644,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993303.8196282,"caller":"middleware/request_logger.go:45","msg":"request","method":"POST","path":"/api/v1/auth/login","status":200,"latency":0.003940771,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993303.8654318,"caller":"handlers/intelligence.go:174","msg":"calling AI service for learning event","url":"http://ai:8000/learner/event"}
+{"level":"info","ts":1770993303.8674805,"caller":"handlers/intelligence.go:184","msg":"AI service response","status":200}
+{"level":"info","ts":1770993303.8675764,"caller":"handlers/intelligence.go:191","msg":"AI service returned updated skills","skills":{}}
+{"level":"info","ts":1770993303.8676116,"caller":"middleware/request_logger.go:45","msg":"request","method":"POST","path":"/api/v1/user/learner/event","status":200,"latency":0.045094346,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993304.8721113,"caller":"handlers/intelligence.go:50","msg":"Learner profile not found, returning default","user_id":"789abb74-12a6-427f-822d-eb76b3d29554"}
+{"level":"info","ts":1770993304.872214,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/api/v1/user/learner","status":200,"latency":0.001120824,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993306.8832448,"caller":"middleware/request_logger.go:45","msg":"request","method":"POST","path":"/api/v1/auth/login","status":200,"latency":0.004028124,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993306.9294262,"caller":"handlers/intelligence.go:174","msg":"calling AI service for learning event","url":"http://ai:8000/learner/event"}
+{"level":"info","ts":1770993306.9322255,"caller":"handlers/intelligence.go:184","msg":"AI service response","status":200}
+{"level":"info","ts":1770993306.9323184,"caller":"handlers/intelligence.go:191","msg":"AI service returned updated skills","skills":{}}
+{"level":"info","ts":1770993306.9323645,"caller":"middleware/request_logger.go:45","msg":"request","method":"POST","path":"/api/v1/user/learner/event","status":200,"latency":0.046000353,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993307.339116,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/metrics","status":200,"latency":0.001333266,"client_ip":"172.20.0.8"}
+{"level":"info","ts":1770993307.9367676,"caller":"handlers/intelligence.go:50","msg":"Learner profile not found, returning default","user_id":"789abb74-12a6-427f-822d-eb76b3d29554"}
+{"level":"info","ts":1770993307.9368892,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/api/v1/user/learner","status":200,"latency":0.001262675,"client_ip":"172.20.0.1"}
+{"level":"info","ts":1770993322.3433487,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/metrics","status":200,"latency":0.003457885,"client_ip":"172.20.0.8"}
+{"level":"info","ts":1770993337.337832,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/metrics","status":200,"latency":0.002098874,"client_ip":"172.20.0.8"}
+{"level":"info","ts":1770993352.3370342,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/metrics","status":200,"latency":0.001314291,"client_ip":"172.20.0.8"}
+{"level":"info","ts":1770993367.3335726,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/metrics","status":200,"latency":0.002278961,"client_ip":"172.20.0.8"}
+{"level":"info","ts":1770993382.334306,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/metrics","status":200,"latency":0.001830355,"client_ip":"172.20.0.8"}
+{"level":"info","ts":1770993397.3319454,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/metrics","status":200,"latency":0.001426718,"client_ip":"172.20.0.8"}
+{"level":"info","ts":1770993412.3313377,"caller":"middleware/request_logger.go:45","msg":"request","method":"GET","path":"/metrics","status":200,"latency":0.00086166,"client_ip":"172.20.0.8"}
