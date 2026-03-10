@@ -354,14 +354,20 @@ async def parse_intent(request: ParseIntentRequest):
     Parse raw natural language intent into structured format using LLM.
     Creates a new SDO instance.
     """
-    # 1. Call LLM to parse intent
-    parsed_result = await llm_service.parse_intent(request.intent)
+    # 0. Sanitize input to prevent prompt injection
+    from sanitizer import sanitize_intent
+    sanitized_intent, is_safe, warning = sanitize_intent(request.intent)
+    if not is_safe:
+        raise HTTPException(status_code=400, detail=f"Invalid intent: {warning}")
+
+    # 1. Call LLM to parse intent (using sanitized version)
+    parsed_result = await llm_service.parse_intent(sanitized_intent)
     
     # 2. Create SDO
     sdo_id = str(uuid.uuid4())
     sdo = SDO(
         id=sdo_id,
-        raw_intent=request.intent,
+        raw_intent=sanitized_intent,
         language="python", # Default, will be updated
         status=SDOStatus.PARSING
     )
@@ -394,6 +400,7 @@ async def parse_intent(request: ParseIntentRequest):
         extracted_constraints=constraints,
         sdo_id=sdo_id
     )
+
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate_code(request: GenerateRequest):

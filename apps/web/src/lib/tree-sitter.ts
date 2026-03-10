@@ -1,4 +1,4 @@
-import Parser from 'web-tree-sitter';
+import TreeSitter from 'web-tree-sitter';
 
 // Supported languages
 export enum SupportedLanguage {
@@ -8,7 +8,8 @@ export enum SupportedLanguage {
 }
 
 let isInitialized = false;
-const parsers: Record<string, Parser> = {};
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const parsers: Record<string, any> = {};
 
 /**
  * Initialize the tree-sitter library.
@@ -18,14 +19,15 @@ export async function initTreeSitter(): Promise<void> {
     if (isInitialized) return;
 
     try {
-        await Parser.init({
-            locateFile(scriptName: string, scriptDirectory: string) {
+        // @ts-expect-error — web-tree-sitter's types don't expose init() on the default export
+        await TreeSitter.init({
+            locateFile(scriptName: string) {
                 // Look for the .wasm file in the public folder
                 return '/' + scriptName;
             },
         });
         isInitialized = true;
-        console.log('Tree-sitter initialized');
+        // Tree-sitter initialized successfully
     } catch (error) {
         console.error('Failed to initialize tree-sitter:', error);
         throw error;
@@ -35,7 +37,8 @@ export async function initTreeSitter(): Promise<void> {
 /**
  * Get or create a parser for the specified language.
  */
-export async function getParser(language: SupportedLanguage): Promise<Parser | null> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getParser(language: SupportedLanguage): Promise<any | null> {
     if (!isInitialized) {
         await initTreeSitter();
     }
@@ -47,8 +50,9 @@ export async function getParser(language: SupportedLanguage): Promise<Parser | n
     try {
         // Load the language (grammar) wasm file
         // Assumes file is at /tree-sitter-{language}.wasm
-        const lang = await Parser.Language.load(`/tree-sitter-${language}.wasm`);
-        const parser = new Parser();
+        const lang = await TreeSitter.Language.load(`/tree-sitter-${language}.wasm`);
+        // @ts-expect-error — web-tree-sitter's types don't expose the constructor on the default export
+        const parser = new TreeSitter();
         parser.setLanguage(lang);
         parsers[language] = parser;
         return parser;
@@ -67,3 +71,4 @@ export function unloadParsers() {
         delete parsers[key];
     });
 }
+

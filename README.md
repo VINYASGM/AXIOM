@@ -10,7 +10,7 @@ A semantic development environment where humans express verified intent and AI g
 
 ### Prerequisites
 - Node.js 20+
-- Go 1.22+
+- Go 1.24+
 - Python 3.12+
 - Docker Desktop
 

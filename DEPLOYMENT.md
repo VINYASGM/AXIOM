@@ -5,7 +5,7 @@ This guide covers the deployment process for the AXIOM platform, including local
 ## Prerequisites
 
 - **Docker & Docker Compose**: v24.0+
-- **Go**: v1.22+ (for local backend dev)
+- **Go**: v1.24+ (for local backend dev)
 - **Node.js**: v20+ (for frontend)
 - **Python**: v3.12+ (for AI service)
 
