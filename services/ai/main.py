@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Query, Path, WebSocket, WebSocketDisconnect
-from datetime import datetime
+from datetime import datetime, date as _date
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -45,10 +45,7 @@ from temporalio.client import Client as TemporalClient
 llm_service = LLMService()
 memory_service = MemoryService(embed_fn=llm_service.embed_text)
 knowledge_service = KnowledgeService(memory_service)
-knowledge_service = KnowledgeService(memory_service)
 economics_service = EconomicsService()
-verification_orchestra = VerificationOrchestra(llm_service)
-database_service = DatabaseService()
 verification_orchestra = VerificationOrchestra(llm_service)
 database_service = DatabaseService()
 # Initialize SDOEngine with stream callback (defined later, so we might need to set it post-init or move def up)
@@ -114,7 +111,7 @@ class ConnectionManager:
         try:
             # Convert to JSON handling datetime
             def json_serial(obj):
-                if isinstance(obj, (datetime.datetime, datetime.date)):
+                if isinstance(obj, (datetime, _date)):
                     return obj.isoformat()
                 raise TypeError(f"Type {type(obj)} not serializable")
             
@@ -162,11 +159,7 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(nats_listener())
 
-    print(f"DEBUG: QDRANT_URL = {os.getenv('QDRANT_URL')}")
-    print(f"DEBUG: TEMPORAL_URL = {os.getenv('TEMPORAL_URL')}")
-    print(f"DEBUG: NATS_URL = {os.getenv('NATS_URL')}")
-    from memory.vector import MemoryConfig
-    print(f"DEBUG: MemoryConfig.QDRANT_URL = {MemoryConfig.QDRANT_URL}")
+
     
     # Initialize NATS (Non-blocking)
     try:
@@ -177,7 +170,7 @@ async def lifespan(app: FastAPI):
     # Initialize Temporal
     global temporal_client
     try:
-        temporal_host = os.getenv("TEMPORAL_URL", "axiom-temporal:7233")
+        temporal_host = os.getenv("TEMPORAL_URL", "localhost:7233")  # Docker DNS alias provided via docker-compose env
         temporal_client = await asyncio.wait_for(TemporalClient.connect(temporal_host), timeout=10.0)
         print("Connected to Temporal")
     except Exception as e:
@@ -509,46 +502,8 @@ class GraphResponse(BaseModel):
     nodes: List[GraphNode]
     edges: List[GraphEdge]
 
-@app.get("/api/v1/graph", response_model=GraphResponse)
-async def get_sde_graph():
-    """
-    Get the semantic graph of all SDOs.
-    """
-    sdos = await database_service.get_all_sdos(limit=100)
-    
-    nodes = []
-    for sdo in sdos:
-        constraints = []
-        if sdo.get('parsed_intent') and isinstance(sdo['parsed_intent'], dict):
-            constraints = sdo['parsed_intent'].get('constraints', [])
-        
-        # Determine status mapping
-        status = sdo.get('status', 'draft')
-        if status == 'generated': status = 'generating' # Map legacy status
-        if status == 'verified' and sdo.get('confidence', 0) < 0.8: status = 'failed' # Heuristic
-
-        # Determine complexity (heuristic based on code length/constraints)
-        complexity = "medium"
-        if constraints and len(constraints) > 5: complexity = "high"
-        if constraints and len(constraints) < 2: complexity = "low"
-
-        nodes.append(GraphNode(
-            id=sdo['id'],
-            label=sdo.get('raw_intent', 'Untitled Intent')[:30], # Truncate for label
-            description=sdo.get('raw_intent'),
-            confidence=sdo.get('confidence', 0.5),
-            status=status.lower(),
-            constraints=[str(c) for c in constraints][:3], # Top 3 constraints
-            complexity=complexity
-        ))
-    
-    # Mock Edges for now (Sequential chain based on time)
-    edges = []
-    # If we had dependency data, we'd add it here.
-    # For demo, let's leave edges empty or infer sequence? 
-    # Empty edges is safer than fake ones.
-    
-    return GraphResponse(nodes=nodes, edges=edges)
+# NOTE: Duplicate /api/v1/graph endpoint removed. Use the Phase B
+# GraphMemoryStore-backed endpoint defined above (line ~297) instead.
 
 # ============================================================================
 # Memory Endpoints
@@ -1647,7 +1602,7 @@ async def submit_feedback(request: FeedbackRequest):
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

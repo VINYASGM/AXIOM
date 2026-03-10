@@ -25,12 +25,32 @@ type RateLimiter struct {
 // refillRate: how many tokens to add per refill period
 // refillPeriod: how often to refill tokens
 func NewRateLimiter(maxTokens, refillRate int, refillPeriod time.Duration) *RateLimiter {
-	return &RateLimiter{
+	rl := &RateLimiter{
 		tokens:       make(map[string]int),
 		lastRefill:   make(map[string]time.Time),
 		maxTokens:    maxTokens,
 		refillRate:   refillRate,
 		refillPeriod: refillPeriod,
+	}
+	// S05/V06: Periodic cleanup to prevent unbounded memory growth
+	go rl.cleanupLoop()
+	return rl
+}
+
+// cleanupLoop evicts entries that have been idle for more than 10 minutes.
+func (rl *RateLimiter) cleanupLoop() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		rl.mu.Lock()
+		cutoff := time.Now().Add(-10 * time.Minute)
+		for key, lastSeen := range rl.lastRefill {
+			if lastSeen.Before(cutoff) {
+				delete(rl.tokens, key)
+				delete(rl.lastRefill, key)
+			}
+		}
+		rl.mu.Unlock()
 	}
 }
 

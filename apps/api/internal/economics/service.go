@@ -119,3 +119,24 @@ func (s *Service) RecordUsage(ctx context.Context, projectID uuid.UUID, userID u
 
 	return nil
 }
+
+// Refund returns budget back to the user/project if an operation failed
+func (s *Service) Refund(ctx context.Context, projectID uuid.UUID, amount float64, reason string) error {
+	updateQuery := `
+		UPDATE projects 
+		SET current_usage = GREATEST(0, current_usage - $2), updated_at = NOW()
+		WHERE id = $1
+	`
+	_, err := s.db.Pool().Exec(ctx, updateQuery, projectID, amount)
+	if err != nil {
+		s.logger.Error("failed to refund budget", zap.Error(err), zap.String("reason", reason))
+		return fmt.Errorf("failed to refund budget: %w", err)
+	}
+
+	s.logger.Info("Budget refunded",
+		zap.String("project_id", projectID.String()),
+		zap.Float64("amount", amount),
+		zap.String("reason", reason),
+	)
+	return nil
+}

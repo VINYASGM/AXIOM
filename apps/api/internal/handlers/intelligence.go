@@ -18,6 +18,7 @@ type IntelligenceHandler struct {
 	db           *database.Postgres
 	aiServiceURL string
 	logger       *zap.Logger
+	httpClient   *http.Client
 }
 
 func NewIntelligenceHandler(db *database.Postgres, aiServiceURL string, logger *zap.Logger) *IntelligenceHandler {
@@ -25,6 +26,9 @@ func NewIntelligenceHandler(db *database.Postgres, aiServiceURL string, logger *
 		db:           db,
 		aiServiceURL: aiServiceURL,
 		logger:       logger,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -119,7 +123,7 @@ func (h *IntelligenceHandler) GetReasoningTrace(c *gin.Context) {
 	}
 
 	// 2. Fetch SDO from AI Service (which contains history)
-	resp, err := http.Get(h.aiServiceURL + "/sdo/" + sdoID)
+	resp, err := h.httpClient.Get(h.aiServiceURL + "/sdo/" + sdoID)
 	if err != nil {
 		h.logger.Error("failed to call AI service for SDO", zap.Error(err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})
@@ -173,7 +177,7 @@ func (h *IntelligenceHandler) PostLearningEvent(c *gin.Context) {
 	jsonBody, _ := json.Marshal(req)
 	h.logger.Info("calling AI service for learning event", zap.String("url", h.aiServiceURL+"/learner/event"))
 
-	resp, err := http.Post(h.aiServiceURL+"/learner/event", "application/json", bytes.NewBuffer(jsonBody))
+	resp, err := h.httpClient.Post(h.aiServiceURL+"/learner/event", "application/json", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		h.logger.Error("failed to call AI service for learning event", zap.Error(err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})

@@ -23,11 +23,19 @@ type IntentHandler struct {
 	db           *database.Postgres
 	aiServiceURL string
 	logger       *zap.Logger
+	httpClient   *http.Client
 }
 
 // NewIntentHandler creates a new intent handler
 func NewIntentHandler(db *database.Postgres, aiServiceURL string, logger *zap.Logger) *IntentHandler {
-	return &IntentHandler{db: db, aiServiceURL: aiServiceURL, logger: logger}
+	return &IntentHandler{
+		db:           db,
+		aiServiceURL: aiServiceURL,
+		logger:       logger,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
+	}
 }
 
 // ParseIntentRequest is the request body for parsing intent
@@ -80,7 +88,7 @@ func (h *IntentHandler) ParseIntent(c *gin.Context) {
 	}
 	aiReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(aiReq)
+	resp, err := h.httpClient.Do(aiReq)
 	if err != nil {
 		h.logger.Error("failed to call AI service", zap.Error(err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})
@@ -198,13 +206,19 @@ func (h *IntentHandler) GetIVCU(c *gin.Context) {
 
 	// Parse JSON fields
 	if len(parsedIntentJSON) > 0 {
-		json.Unmarshal(parsedIntentJSON, &ivcu.ParsedIntent)
+		if err := json.Unmarshal(parsedIntentJSON, &ivcu.ParsedIntent); err != nil {
+			h.logger.Error("failed to unmarshal parsed intent", zap.Error(err))
+		}
 	}
 	if len(contractsJSON) > 0 {
-		json.Unmarshal(contractsJSON, &ivcu.Contracts)
+		if err := json.Unmarshal(contractsJSON, &ivcu.Contracts); err != nil {
+			h.logger.Error("failed to unmarshal contracts", zap.Error(err))
+		}
 	}
 	if len(implementationPlanJSON) > 0 {
-		json.Unmarshal(implementationPlanJSON, &ivcu.ImplementationPlan)
+		if err := json.Unmarshal(implementationPlanJSON, &ivcu.ImplementationPlan); err != nil {
+			h.logger.Error("failed to unmarshal implementation plan", zap.Error(err))
+		}
 	}
 	if code != nil {
 		ivcu.Code = *code
@@ -338,7 +352,7 @@ func (h *IntentHandler) ListProjectIVCUs(c *gin.Context) {
 // GetGraph retrieves the SDE graph (nodes and edges)
 func (h *IntentHandler) GetGraph(c *gin.Context) {
 	// Proxy to AI Service which holds the SDO graph source of truth
-	resp, err := http.Get(h.aiServiceURL + "/api/v1/graph")
+	resp, err := h.httpClient.Get(h.aiServiceURL + "/api/v1/graph")
 	if err != nil {
 		h.logger.Error("failed to call AI service", zap.Error(err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})
@@ -356,7 +370,3 @@ func (h *IntentHandler) GetGraph(c *gin.Context) {
 	c.Status(http.StatusOK)
 	_, _ = io.Copy(c.Writer, resp.Body)
 }
-
-// Unused import workaround
-var _ = bytes.Buffer{}
-var _ = io.Copy

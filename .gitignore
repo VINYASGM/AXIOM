@@ -57,3 +57,12 @@ vendor/
 venv/
 .pytest_cache/
 .mypy_cache/
+
+.gocache/
+.gomodcache/
+services/verifier/target/
+logs*.txt
+ai_logs*.txt
+api_logs*.txt
+temp_web/
+verify_output*.txt

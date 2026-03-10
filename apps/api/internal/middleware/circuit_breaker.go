@@ -142,5 +142,12 @@ func CircuitBreakerMiddleware(cb *CircuitBreaker) gin.HandlerFunc {
 			return
 		}
 		c.Next()
+
+		// S10: Record outcome so the circuit breaker can actually trip
+		if c.Writer.Status() >= 500 {
+			cb.RecordFailure()
+		} else {
+			cb.RecordSuccess()
+		}
 	}
 }

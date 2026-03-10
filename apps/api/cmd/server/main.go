@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -114,9 +115,9 @@ func main() {
 		logger.Info("connected to temporal")
 	}
 
-	// Debug: print the database URL being used
-	log.Printf("DEBUG: Connecting to database: %s", cfg.DatabaseURL)
-	log.Printf("DEBUG: Redis URL: %s", cfg.RedisURL)
+	// Debug: print the database URL being used (credentials masked)
+	log.Printf("DEBUG: Connecting to database: %s", maskURL(cfg.DatabaseURL))
+	log.Printf("DEBUG: Redis URL: %s", maskURL(cfg.RedisURL))
 
 	// Initialize database
 	db, err := database.NewPostgres(cfg.DatabaseURL)
@@ -125,12 +126,14 @@ func main() {
 	}
 	defer db.Close()
 
-	// Initialize Redis
+	// Initialize Redis (C04: graceful degradation instead of Fatal)
 	rdb, err := database.NewRedis(cfg.RedisURL)
 	if err != nil {
-		logger.Fatal("failed to connect to redis", zap.Error(err))
+		logger.Error("failed to connect to redis, running in degraded mode", zap.Error(err))
+		rdb = nil
+	} else {
+		defer rdb.Close()
 	}
-	defer rdb.Close()
 
 	logger.Info("Running database migrations...")
 	if err := database.RunMigrations(cfg.DatabaseURL); err != nil {
@@ -148,6 +151,7 @@ func main() {
 	router.Use(middleware.RequestLogger(logger)) // Use new request logger
 	router.Use(middleware.CORS())
 	router.Use(middleware.RequestID())
+	router.Use(middleware.SecurityHeaders()) // V10: HTTP security headers
 
 	// Swagger documentation
 	router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
@@ -173,7 +177,7 @@ func main() {
 	intentHandler := handlers.NewIntentHandler(db, cfg.AIServiceURL, logger)
 	generationHandler := handlers.NewGenerationHandler(db, cfg.AIServiceURL, logger, economicService, temporalClient)
 	verificationHandler := handlers.NewVerificationHandler(db, cfg.AIServiceURL, verifierClient, certificateService, logger)
-	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret, logger)
+	authHandler := handlers.NewAuthHandler(db, rdb, cfg.JWTSecret, logger)
 	intelligenceHandler := handlers.NewIntelligenceHandler(db, cfg.AIServiceURL, logger)
 	economicsHandler := handlers.NewEconomicsHandler(db, cfg.AIServiceURL, logger, economicService)
 	projectHandler := handlers.NewProjectHandler(db, logger)
@@ -225,9 +229,9 @@ func main() {
 				generation.POST("/:id/cancel", generationHandler.CancelGeneration)
 			}
 
-			// Public Verification Routes (Moved for Integration Testing)
-			verification := v1.Group("/verification")
-			// Note: Circuit breaker skipped for now or needs manual middleware attach if critical
+			// Verification Routes (protected with auth + strict rate limit)
+			verification := protected.Group("/verification")
+			verification.Use(middleware.RateLimitMiddleware(middleware.StrictRateLimiter))
 			verification.POST("/verify", verificationHandler.Verify)
 			verification.GET("/:id", verificationHandler.GetResult)
 
@@ -305,4 +309,16 @@ func main() {
 	}
 
 	logger.Info("server exited gracefully")
+}
+
+// maskURL redacts credentials from a URL for safe logging.
+func maskURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "<invalid-url>"
+	}
+	if parsed.User != nil {
+		parsed.User = url.UserPassword("***", "***")
+	}
+	return parsed.String()
 }

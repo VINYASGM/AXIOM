@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/axiom/api/internal/database"
@@ -17,13 +19,14 @@ import (
 // AuthHandler handles authentication endpoints
 type AuthHandler struct {
 	db        *database.Postgres
+	redis     *database.Redis
 	jwtSecret string
 	logger    *zap.Logger
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(db *database.Postgres, jwtSecret string, logger *zap.Logger) *AuthHandler {
-	return &AuthHandler{db: db, jwtSecret: jwtSecret, logger: logger}
+func NewAuthHandler(db *database.Postgres, redis *database.Redis, jwtSecret string, logger *zap.Logger) *AuthHandler {
+	return &AuthHandler{db: db, redis: redis, jwtSecret: jwtSecret, logger: logger}
 }
 
 // RegisterRequest is the request body for registration
@@ -83,12 +86,17 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	if err != nil {
 		h.logger.Error("failed to create user", zap.Error(err))
-		c.JSON(http.StatusConflict, gin.H{"error": "email already exists"})
+		// S07: Distinguish unique violation from other DB errors
+		if strings.Contains(err.Error(), "23505") || strings.Contains(err.Error(), "unique") {
+			c.JSON(http.StatusConflict, gin.H{"error": "email already exists"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
 		return
 	}
 
 	// Generate tokens
-	token, refreshToken, expiresAt, err := h.generateTokens(&user)
+	token, refreshToken, expiresAt, err := h.generateTokens(c.Request.Context(), &user)
 	if err != nil {
 		h.logger.Error("failed to generate tokens", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
@@ -134,7 +142,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	// Generate tokens
-	token, refreshToken, expiresAt, err := h.generateTokens(&user)
+	token, refreshToken, expiresAt, err := h.generateTokens(c.Request.Context(), &user)
 	if err != nil {
 		h.logger.Error("failed to generate tokens", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
@@ -149,10 +157,68 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	})
 }
 
-// RefreshToken refreshes an access token
+// RefreshToken refreshes an access token using a valid refresh token
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
-	// Implementation for refresh token
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+	var req struct {
+		RefreshToken string `json:"refresh_token" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate refresh token exists in Redis
+	ctx := c.Request.Context()
+	key := "refresh_token:" + req.RefreshToken
+
+	var userID string
+	if h.redis != nil {
+		val, err := h.redis.Client().Get(ctx, key).Result()
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired refresh token"})
+			return
+		}
+		userID = val
+		// Delete old refresh token (single-use)
+		h.redis.Client().Del(ctx, key)
+	} else {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "token refresh unavailable"})
+		return
+	}
+
+	// Fetch user
+	parsedUID, err := uuid.Parse(userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid refresh token"})
+		return
+	}
+
+	query := `
+		SELECT id, email, name, role, trust_dial_default, created_at, updated_at
+		FROM users WHERE id = $1
+	`
+	var user models.User
+	err = h.db.Pool().QueryRow(ctx, query, parsedUID).
+		Scan(&user.ID, &user.Email, &user.Name, &user.Role, &user.TrustDialDefault, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+		return
+	}
+
+	// Issue new tokens
+	token, refreshToken, expiresAt, err := h.generateTokens(ctx, &user)
+	if err != nil {
+		h.logger.Error("failed to generate tokens", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, AuthResponse{
+		Token:        token,
+		RefreshToken: refreshToken,
+		ExpiresAt:    expiresAt,
+		User:         &user,
+	})
 }
 
 // GetCurrentUser returns the current authenticated user
@@ -185,7 +251,7 @@ func (h *AuthHandler) UpdateSettings(c *gin.Context) {
 	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
 }
 
-func (h *AuthHandler) generateTokens(user *models.User) (string, string, time.Time, error) {
+func (h *AuthHandler) generateTokens(ctx context.Context, user *models.User) (string, string, time.Time, error) {
 	expiresAt := time.Now().Add(24 * time.Hour)
 
 	claims := middleware.Claims{
@@ -205,8 +271,12 @@ func (h *AuthHandler) generateTokens(user *models.User) (string, string, time.Ti
 		return "", "", time.Time{}, err
 	}
 
-	// Simple refresh token (in production, store in database)
+	// S02/V03: Generate refresh token and store in Redis with 7-day TTL
 	refreshToken := uuid.New().String()
+	if h.redis != nil {
+		key := "refresh_token:" + refreshToken
+		h.redis.Client().Set(ctx, key, user.ID.String(), 7*24*time.Hour)
+	}
 
 	return tokenString, refreshToken, expiresAt, nil
 }

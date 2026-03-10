@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/axiom/api/internal/database"
 	"github.com/axiom/api/internal/economics"
@@ -16,6 +17,7 @@ type EconomicsHandler struct {
 	aiServiceURL    string
 	logger          *zap.Logger
 	economicService *economics.Service
+	httpClient      *http.Client
 }
 
 func NewEconomicsHandler(db *database.Postgres, aiServiceURL string, logger *zap.Logger, economicService *economics.Service) *EconomicsHandler {
@@ -24,6 +26,9 @@ func NewEconomicsHandler(db *database.Postgres, aiServiceURL string, logger *zap
 		aiServiceURL:    aiServiceURL,
 		logger:          logger,
 		economicService: economicService,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -56,7 +61,7 @@ func (h *EconomicsHandler) EstimateCost(c *gin.Context) {
 	}
 	jsonBody, _ := json.Marshal(reqBody)
 
-	resp, err := http.Post(h.aiServiceURL+"/cost/estimate", "application/json", bytes.NewBuffer(jsonBody))
+	resp, err := h.httpClient.Post(h.aiServiceURL+"/cost/estimate", "application/json", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		h.logger.Error("failed to call AI service for cost estimation", zap.Error(err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})
@@ -85,7 +90,7 @@ func (h *EconomicsHandler) GetSessionCost(c *gin.Context) {
 		return
 	}
 
-	resp, err := http.Get(h.aiServiceURL + "/cost/session/" + sessionID)
+	resp, err := h.httpClient.Get(h.aiServiceURL + "/cost/session/" + sessionID)
 	if err != nil {
 		h.logger.Error("failed to call AI service for session cost", zap.Error(err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "AI service unavailable"})

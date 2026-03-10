@@ -29,5 +29,7 @@ COPY --from=builder /app/main .
 # Expose port
 EXPOSE 8080
 
+USER nonroot:nonroot
+
 # Run
 CMD ["./main"]

@@ -73,9 +73,11 @@ func NotFound(c *gin.Context, message string) {
 	RespondError(c, http.StatusNotFound, ErrCodeNotFound, message)
 }
 
-// InternalError sends a 500 error
+// InternalError sends a 500 error with a generic message to avoid
+// leaking internal details (V08). The 'message' parameter is for
+// internal logging only; clients always see a sanitized response.
 func InternalError(c *gin.Context, message string) {
-	RespondError(c, http.StatusInternalServerError, ErrCodeInternalError, message)
+	RespondError(c, http.StatusInternalServerError, ErrCodeInternalError, "an internal error occurred")
 }
 
 // AIServiceUnavailable sends a 503 error for AI service issues

@@ -24,6 +24,8 @@ type GenerationHandler struct {
 	logger          *zap.Logger
 	economicService *economics.Service
 	temporalClient  client.Client
+	workerPool      chan struct{}
+	httpClient      *http.Client
 }
 
 // NewGenerationHandler creates a new generation handler
@@ -34,6 +36,10 @@ func NewGenerationHandler(db *database.Postgres, aiServiceURL string, logger *za
 		logger:          logger,
 		economicService: economicService,
 		temporalClient:  temporalClient,
+		workerPool:      make(chan struct{}, 50),
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -129,7 +135,7 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 	}
 	planJSON, _ := json.Marshal(planReq)
 
-	planResp, err := http.Post(h.aiServiceURL+"/generate/plan", "application/json", bytes.NewBuffer(planJSON))
+	planResp, err := h.httpClient.Post(h.aiServiceURL+"/generate/plan", "application/json", bytes.NewBuffer(planJSON))
 	if err == nil && planResp.StatusCode == http.StatusOK {
 		var planResult map[string]interface{}
 		if err := json.NewDecoder(planResp.Body).Decode(&planResult); err == nil {
@@ -145,8 +151,23 @@ func (h *GenerationHandler) StartGeneration(c *gin.Context) {
 		h.logger.Warn("failed to generate implementation plan", zap.Error(err))
 	}
 
-	// Call AI service to generate code
-	go h.generateCode(req.IVCUID, projectID, sdoID, rawIntent, req.Language, userID, req.CandidateCount, req.Strategy, estimatedCost)
+	// Call AI service to generate code (C02: timeout on worker pool send)
+	select {
+	case h.workerPool <- struct{}{}:
+		go func() {
+			defer func() { <-h.workerPool }()
+			h.generateCode(req.IVCUID, projectID, sdoID, rawIntent, req.Language, userID, req.CandidateCount, req.Strategy, estimatedCost)
+		}()
+	case <-time.After(10 * time.Second):
+		h.logger.Warn("worker pool exhausted, rejecting generation request",
+			zap.String("ivcu_id", req.IVCUID.String()),
+		)
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":          "service temporarily overloaded, please retry",
+			"retry_after_ms": 5000,
+		})
+		return
+	}
 
 	generationID := uuid.New()
 	c.JSON(http.StatusAccepted, gin.H{
@@ -193,6 +214,8 @@ func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, projectID uuid.UUID, 
 		// Mark IVCU as failed
 		query := `UPDATE ivcus SET status = $1, updated_at = NOW() WHERE id = $2`
 		h.db.Pool().Exec(ctx, query, models.IVCUStatusFailed, ivcuID)
+
+		h.economicService.Refund(ctx, projectID, estimatedCost, "temporal_unavailable")
 		return
 	}
 
@@ -208,6 +231,7 @@ func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, projectID uuid.UUID, 
 
 	if err != nil {
 		h.logger.Error("failed to start workflow", zap.Error(err))
+		h.economicService.Refund(ctx, projectID, estimatedCost, "workflow_failed")
 	} else {
 		// Wait for result (in this goroutine)
 		var output models.GenerationOutput
@@ -241,13 +265,20 @@ func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, projectID uuid.UUID, 
 		actualCost = estimatedCost * 0.1 // Small charge for failure handling?
 	}
 
+	// Safely extract workflow identifiers (we may be nil if ExecuteWorkflow failed)
+	var workflowID, runID string
+	if we != nil {
+		workflowID = we.GetID()
+		runID = we.GetRunID()
+	}
+
 	err = h.economicService.RecordUsage(ctx, projectID, userID, actualCost, "code_generation", map[string]interface{}{
 		"ivcu_id":     ivcuID,
 		"tokens_in":   len(intent),
 		"tokens_out":  len(code),
 		"strategy":    strategy,
-		"workflow_id": we.GetID(),
-		"run_id":      we.GetRunID(),
+		"workflow_id": workflowID,
+		"run_id":      runID,
 	})
 	if err != nil {
 		h.logger.Error("failed to record usage", zap.Error(err))
@@ -264,7 +295,7 @@ func (h *GenerationHandler) generateCode(ivcuID uuid.UUID, projectID uuid.UUID, 
 		zap.String("ivcu_id", ivcuID.String()),
 		zap.String("status", string(status)),
 		zap.Int64("latency_ms", latency),
-		zap.String("workflow_id", we.GetID()),
+		zap.String("workflow_id", workflowID),
 	)
 }
 

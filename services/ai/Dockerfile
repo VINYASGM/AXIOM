@@ -19,14 +19,19 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Stage 2: Runtime
 FROM python:3.12-slim
 
+RUN groupadd -g 1000 appuser && \
+    useradd -u 1000 -g appuser -s /bin/bash -m appuser
+
 WORKDIR /app
 
 # Copy virtual environment from builder
-COPY --from=builder /opt/venv /opt/venv
+COPY --chown=appuser:appuser --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy application code
-COPY . .
+COPY --chown=appuser:appuser . .
+
+USER appuser
 
 # Expose port
 EXPOSE 8000

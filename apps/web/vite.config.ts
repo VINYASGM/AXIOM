@@ -11,8 +11,10 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [react()],
     define: {
-      'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+      // SECURITY: API keys must NOT be bundled into client code.
+      // Use server-side proxy (/api/gemini/*) instead.
+      // TODO: Build backend proxy for Gemini API calls
+      'process.env.API_URL': JSON.stringify(env.VITE_API_URL || 'http://localhost:8080')
     },
     test: {
       environment: 'jsdom',

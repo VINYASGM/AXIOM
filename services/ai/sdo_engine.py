@@ -32,6 +32,18 @@ from economics import EconomicsService, get_economics_service
 from learner import LearnerModel
 from memory import GraphRAG, VectorMemory, GraphMemory, MemoryConfig
 from events import get_event_store, EventType, IVCUEventStore
+import eventbus
+
+# Specific exception types for granular error handling (Issue #4)
+try:
+    import httpx
+except ImportError:
+    httpx = None
+
+try:
+    import asyncpg.exceptions
+except ImportError:
+    asyncpg = None
 
 
 
@@ -162,7 +174,7 @@ class SDOEngine:
             try:
                 context = await self.knowledge.retrieve_context_for_intent(sdo.raw_intent)
                 retrieved_context_str = context.to_prompt_str()
-                sdo.retrieved_context = context.model_dump()
+                sdo.retrieved_context = context.model_dump(mode='json')
             except Exception as e:
                 print(f"Legacy RAG retrieval failed: {e}")
 
@@ -190,6 +202,7 @@ class SDOEngine:
         context_str: str = ""
     ) -> Optional[Candidate]:
         """Generate a single candidate"""
+        # --- Phase 1: Context retrieval (catch infrastructure errors specifically) ---
         try:
             # Augment prompt if context exists
             prompt_context = sdo.model_copy() # Shallow copy
@@ -199,22 +212,33 @@ class SDOEngine:
                 prompt_context.parsed_intent["_rag_context"] = context_str
 
             # Phase E: Adaptive Learning
-            # Retrieve learned guidance/lessons for this intent or project
             print(f"DEBUG: Checking Learner for guidance on intent: {sdo.raw_intent[:20]}...")
             learned_constraints = await self.learner.get_guidance(sdo.raw_intent)
             if learned_constraints:
                 print(f"DEBUG: Found {len(learned_constraints)} learned constraints.")
-                # Inject into constraints list
                 if not prompt_context.constraints:
                      prompt_context.constraints = []
                 prompt_context.constraints.extend(learned_constraints)
+        except asyncio.CancelledError:
+            raise  # Never swallow Temporal cancellation signals
+        except ConnectionError as e:
+            print(f"Connection error during context retrieval: {e}")
+            raise
+        except Exception as e:
+            if httpx and isinstance(e, httpx.ConnectError):
+                print(f"HTTP connection error during context retrieval: {e}")
+                raise
+            print(f"Context retrieval error: {e}")
+            # Continue without context rather than failing entirely
 
+        # --- Phase 2: Cache check + Agent execution (catch cancellation separately) ---
+        try:
             # Phase 3: Check Semantic Cache
             if self.cache and index == 0:  # Only check once per batch
                 cache_entry = await self.cache.get(
                     query=sdo.raw_intent,
-                    model="gpt-4-turbo", # Default model for now
-                    embedding=None # In real impl, pass embedding from memory_service
+                    model="gpt-4-turbo",
+                    embedding=None
                 )
                 if cache_entry:
                     print(f"Cache Hit for intent: {sdo.raw_intent[:50]}...")
@@ -222,15 +246,13 @@ class SDOEngine:
                     return Candidate(
                         id=str(uuid.uuid4()),
                         code=cache_entry.response,
-                        confidence=0.9, # High confidence for cached results
+                        confidence=0.9,
                         model_id=f"cache:{cache_entry.model}",
                         reasoning="Retrieved from Semantic Cache",
                         metadata={"cached_at": cache_entry.created_at}
                     )
 
             # Execute generation via Code Agent
-            # Router logic temporarily bypassed in favor of Agent's structured output
-            
             agent_result = await self.code_agent.run(prompt_context)
             
             if agent_result.success:
@@ -240,8 +262,20 @@ class SDOEngine:
             else:
                 print(f"Agent failed: {agent_result.error}")
                 return None
-            
-            # Phase 3: Generate Reasoning Trace
+        except asyncio.CancelledError:
+            raise  # Never swallow Temporal cancellation signals
+        except ConnectionError as e:
+            print(f"Connection error during generation: {e}")
+            raise
+        except Exception as e:
+            if httpx and isinstance(e, httpx.ConnectError):
+                print(f"HTTP connection error during generation: {e}")
+                raise
+            print(f"Generation execution error: {e}")
+            return None
+
+        # --- Phase 3: Parse results (broad catch is acceptable for AI output parsing) ---
+        try:
             # Map LLM reasoning to DecisionNodes
             nodes = []
             if reasoning_raw:
@@ -258,13 +292,13 @@ class SDOEngine:
                 # Fallback
                 trace = self._generate_trace_for_candidate(sdo, model_id)
             
-                result_candidate = Candidate(
+            result_candidate = Candidate(
                 id=str(uuid.uuid4()),
                 code=code,
                 confidence=0.5,
                 model_id=model_id,
                 reasoning=f"Generated via Agent Pool (temp={temperature:.2f})",
-                metadata={"reasoning_trace": trace.model_dump() if trace else None}
+                metadata={"reasoning_trace": trace.model_dump(mode='json') if trace else None}
             )
             
             # Emit Candidate Generated Event
@@ -294,7 +328,7 @@ class SDOEngine:
             return result_candidate
 
         except Exception as e:
-            print(f"Generation error: {e}")
+            print(f"Result parsing error: {e}")
             return None
 
     def _generate_trace_for_candidate(self, sdo: SDO, model_id: str) -> Optional[ReasoningTrace]:
@@ -358,7 +392,7 @@ class SDOEngine:
             candidates=candidates_to_verify,
             sdo_id=sdo.id,
             language=sdo.language,
-            contracts=[c.model_dump() for c in sdo.contracts]
+            contracts=[c.model_dump(mode='json') for c in sdo.contracts]
         )
         
         # Update candidates with verification results
@@ -385,7 +419,7 @@ class SDOEngine:
                                 "candidate_id": candidate.id,
                                 "passed": vr.passed,
                                 "score": vr.confidence,
-                                "results": vr.model_dump()
+                                "results": vr.model_dump(mode='json')
                             }
                         )
                 except Exception as e:
@@ -587,18 +621,17 @@ class SDOEngine:
             return sdo
         # ----------------------
         
-            # Phase 4: Event Bus - Start
-            # Note: Event emission disabled due to NATS client instability (serialization/crash)
-            # try:
-            #     bus = await eventbus.get_event_bus()
-            #     if bus:
-            #         await bus.emit_generation_started(
-            #             ivcu_id=sdo.id,
-            #             intent=sdo.raw_intent,
-            #             model_id="gpt-4-turbo"
-            #         )
-            # except Exception as e:
-            #     print(f"Event emission failed: {e}")
+        # Phase 4: Event Bus - Start (re-enabled with safe serialization)
+        try:
+            bus = await eventbus.get_event_bus()
+            if bus:
+                await bus.emit_generation_started(
+                    ivcu_id=str(sdo.id),
+                    intent=str(sdo.raw_intent),
+                    model_id="gpt-4-turbo"
+                )
+        except Exception as e:
+            print(f"Event emission failed (non-fatal): {e}")
 
         # 1. Generate candidates
         await self.generate_candidates(sdo, count=candidate_count, temperature_range=temperature_range)
@@ -613,14 +646,14 @@ class SDOEngine:
                 bus = await eventbus.get_event_bus()
                 if bus:
                     await bus.emit_generation_completed(
-                        ivcu_id=sdo.id,
+                        ivcu_id=str(sdo.id),
                         candidate_id="none",
                         success=False,
                         tokens_used=0,
                         cost=0.0
                     )
             except Exception as e:
-                print(f"Event emission failed: {e}")
+                print(f"Event emission failed (non-fatal): {e}")
                 
             return sdo
         
@@ -656,14 +689,14 @@ class SDOEngine:
             bus = await eventbus.get_event_bus()
             if bus and best:
                 await bus.emit_generation_completed(
-                    ivcu_id=sdo.id,
-                    candidate_id=best.id,
-                    success=best.verification_passed,
-                    tokens_used=total_input + total_output,
-                    cost=estimate.estimated_cost_usd # Approx
+                    ivcu_id=str(sdo.id),
+                    candidate_id=str(best.id),
+                    success=bool(best.verification_passed),
+                    tokens_used=int(total_input + total_output),
+                    cost=float(estimate.estimated_cost_usd)
                 )
         except Exception as e:
-            print(f"Event emission failed: {e}")
+            print(f"Event emission failed (non-fatal): {e}")
         
         # 5. Update bandit with result
         if arm and best:
@@ -728,7 +761,7 @@ class SDOEngine:
             try:
                 context = await self.knowledge.retrieve_context_for_intent(sdo.raw_intent)
                 retrieved_context_str = context.to_prompt_str()
-                sdo.retrieved_context = context.model_dump()
+                sdo.retrieved_context = context.model_dump(mode='json')
             except Exception as e:
                 print(f"RAG retrieval failed: {e}")
         
@@ -748,7 +781,7 @@ class SDOEngine:
             
             candidate.verification_passed = result.passed
             candidate.verification_score = result.confidence
-            candidate.verification_result = result.model_dump()
+            candidate.verification_result = result.model_dump(mode='json')
             candidates.append(candidate)
             
             # Early stop if high confidence

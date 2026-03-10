@@ -59,8 +59,16 @@ func (h *VerificationHandler) Verify(c *gin.Context) {
 
 	startTime := time.Now()
 
-	// Call Verifier Service (Rust)
-	passed, confidence, err := h.verifierClient.Verify(c.Request.Context(), req.Code, "python")
+	// S09: Fetch the IVCU's actual language from the database
+	var ivcuLanguage string
+	langQuery := `SELECT COALESCE(language, 'python') FROM ivcus WHERE id = $1`
+	err := h.db.Pool().QueryRow(c.Request.Context(), langQuery, req.IVCUID).Scan(&ivcuLanguage)
+	if err != nil {
+		ivcuLanguage = "python" // fallback
+	}
+
+	// Call Verifier Service (Rust) with the actual IVCU language
+	passed, confidence, err := h.verifierClient.Verify(c.Request.Context(), req.Code, ivcuLanguage)
 	if err != nil {
 		h.logger.Error("failed to call Verifier service", zap.Error(err))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Verifier service unavailable"})
@@ -225,7 +233,9 @@ func (h *VerificationHandler) GetResult(c *gin.Context) {
 
 	var verifierResults []map[string]interface{}
 	if len(verificationJSON) > 0 {
-		json.Unmarshal(verificationJSON, &verifierResults)
+		if err := json.Unmarshal(verificationJSON, &verifierResults); err != nil {
+			h.logger.Error("failed to unmarshal verification results", zap.Error(err))
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

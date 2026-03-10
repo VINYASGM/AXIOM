@@ -157,7 +157,9 @@ func (h *ProjectHandler) GetProject(c *gin.Context) {
 	}
 
 	if len(settingsJSON) > 0 {
-		json.Unmarshal(settingsJSON, &project.Settings)
+		if err := json.Unmarshal(settingsJSON, &project.Settings); err != nil {
+			h.logger.Error("failed to unmarshal project settings", zap.Error(err))
+		}
 	}
 
 	c.JSON(http.StatusOK, project)
